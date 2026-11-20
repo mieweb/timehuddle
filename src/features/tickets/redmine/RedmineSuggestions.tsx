@@ -48,7 +48,7 @@ import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { huddleTicketRef } from '../sources/huddleSource';
-import { carriedRefOf, linkRefOf, outsideIdOf } from '../ticketIds';
+import { outsideIdOf, ticketOutsideRefOf } from '../ticketIds';
 import { ticketDetailPath, ticketKey } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
 
@@ -865,8 +865,7 @@ function FoundTicketRow({
 }) {
   const prefixes = team?.sourcePrefixes ?? [];
   const own = huddleTicketRef(ticket, team?.ticketPrefix);
-  const outside =
-    carriedRefOf(ticket.linkedIssue, prefixes, redmineHost) ?? linkRefOf(ticket, prefixes);
+  const outside = ticketOutsideRefOf(ticket, prefixes, redmineHost);
   const timerName = running ? text.stopTimer(outside ?? own) : text.startTimer(outside ?? own);
   return (
     <>

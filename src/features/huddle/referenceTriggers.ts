@@ -12,8 +12,8 @@ import { ticketApi } from '@lib/api';
 import { useSession } from '@lib/useSession';
 import { CLOSED_STATUSES } from '../tickets/sources/huddleSource';
 import { useMyBoardKeys } from '../tickets/useMyBoardKeys';
-import { planTicketName, profilePath, ticketPath } from './planItems';
-import type { Ticket } from './types';
+import { planTicketName, profilePath, ticketPath, type TicketNaming } from './planItems';
+import type { TeamMember, Ticket } from './types';
 import type { TeamMentions } from './useTeamMentions';
 
 /** User-facing copy, kept together for translation. */
@@ -56,13 +56,19 @@ export const TICKET_LINKS: ReferenceTrigger = {
   fromHref: pathId(/^\/app\/tickets\/(?!redmine\/)([^/?#]+)$/),
 };
 
-/** `@` teammates, from the team's roster — waited on if `@` is typed before it loads. */
+/**
+ * `@` teammates, from the team's roster — read afresh at each new `@` (an
+ * empty query), so one that failed or went stale recovers, and reused while
+ * that query is typed.
+ */
 export function usePersonTrigger(mentions: TeamMentions): ReferenceTrigger {
-  const { roster } = mentions;
-  return useMemo(
-    () => ({
+  const { loadRoster } = mentions;
+  return useMemo(() => {
+    let roster: Promise<TeamMember[]> | null = null;
+    return {
       ...PERSON_LINKS,
       search: async (query: string) => {
+        if (query === '' || !roster) roster = loadRoster();
         const q = query.toLowerCase();
         return (await roster)
           .filter((person) => person.name.toLowerCase().includes(q))
@@ -72,9 +78,8 @@ export function usePersonTrigger(mentions: TeamMentions): ReferenceTrigger {
             label: `@${person.name}`,
           }));
       },
-    }),
-    [roster],
-  );
+    };
+  }, [loadRoster]);
 }
 
 const updatedTime = (ticket: Ticket) => (ticket.updatedAt ? Date.parse(ticket.updatedAt) : 0);
@@ -85,13 +90,13 @@ const updatedTime = (ticket: Ticket) => (ticket.updatedAt ? Date.parse(ticket.up
  */
 export function useTicketTrigger(
   teamId: string | null | undefined,
-  ticketPrefix?: string,
+  naming?: TicketNaming,
 ): ReferenceTrigger {
   const { user } = useSession();
   const { boardKeys } = useMyBoardKeys(user?.id ?? null);
   // Read at search time, so the trigger keeps its identity as data arrives.
-  const latest = useRef({ teamId, boardKeys, ticketPrefix });
-  latest.current = { teamId, boardKeys, ticketPrefix };
+  const latest = useRef({ teamId, boardKeys, naming });
+  latest.current = { teamId, boardKeys, naming };
   // The team's tickets, as a request the searches wait on. Read afresh at
   // each new `#` (an empty query) — Huddle stays mounted, so a first-load
   // snapshot would miss new tickets and keep closed ones — and reused while
@@ -102,7 +107,7 @@ export function useTicketTrigger(
     () => ({
       ...TICKET_LINKS,
       search: async (query: string) => {
-        const { teamId: id, boardKeys: board, ticketPrefix: prefix } = latest.current;
+        const { teamId: id, boardKeys: board, naming: names } = latest.current;
         if (!id) return [];
         if (query === '' || tickets.current?.teamId !== id) {
           tickets.current = {
@@ -115,7 +120,7 @@ export function useTicketTrigger(
         const onBoard = (ticket: Ticket) => board.has(`huddle:${ticket.id}`);
         return all
           .filter((ticket) => !CLOSED_STATUSES.has(ticket.status))
-          .map((ticket) => ({ ticket, name: planTicketName(ticket, prefix) }))
+          .map((ticket) => ({ ticket, name: planTicketName(ticket, names) }))
           .filter(({ name }) => name.toLowerCase().includes(q))
           .sort(
             (a, b) =>

@@ -47,6 +47,20 @@ describe('useTeamMentions', () => {
     expect(result.current.options).toEqual([]);
   });
 
+  it('reads the roster again after a failed load, sharing a read in flight', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch.mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useTeamMentions('team-1'));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await expect(result.current.loadRoster()).resolves.toEqual([]);
+
+    mockFetch.mockResolvedValue(roster);
+    const first = result.current.loadRoster();
+    expect(result.current.loadRoster()).toBe(first);
+    await expect(first).resolves.toEqual(roster);
+    await waitFor(() => expect(result.current.options).toHaveLength(3));
+  });
+
   it('drops the previous team’s roster as soon as the team changes', async () => {
     mockFetch.mockResolvedValueOnce(roster);
     mockFetch.mockImplementationOnce(() => new Promise(() => {}));

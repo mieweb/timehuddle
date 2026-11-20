@@ -3,6 +3,7 @@ import {
   appendPlanItem,
   editedTicketIds,
   planTicketItem,
+  planTicketName,
   teamTicketIdsInText,
   ticketIdsInText,
 } from './planItems';
@@ -12,6 +13,23 @@ describe('planItems', () => {
 
   it('writes a ticket as a link to its page, no checkbox, its name escaped', () => {
     expect(item).toBe('[TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
+  });
+
+  it('names a ticket by the ID My Board shows: its outside one, else its own', () => {
+    const naming = {
+      ticketPrefix: 'TH',
+      sourcePrefixes: [{ host: 'redmine.example.com', prefix: 'RMX' }],
+    };
+    const own = { id: 'tkt-7', title: 'Fix login', number: 7 };
+    expect(planTicketName(own, naming)).toBe('TH-7: Fix login');
+    const onGitHub = { ...own, github: 'https://github.com/mieweb/timehuddle/issues/717' };
+    expect(planTicketName(onGitHub, naming)).toBe('timehuddle-717: Fix login');
+    expect(planTicketName({ ...onGitHub, linkIsIssue: false }, naming)).toBe('TH-7: Fix login');
+    const onRedmine = {
+      ...own,
+      linkedIssue: { source: 'redmine' as const, id: '150', host: 'redmine.example.com' },
+    };
+    expect(planTicketName(onRedmine, naming)).toBe('RMX-150: Fix login');
   });
 
   it('adds a ticket on its own line', () => {

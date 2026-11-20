@@ -5,19 +5,30 @@
  * so picking a ticket writes it into the plan, and deleting it drops it.
  */
 
+import type { SourcePrefix } from '@lib/api';
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
+import { ticketOutsideRefOf } from '../tickets/ticketIds';
+import type { TicketRef } from './useTicketSelection';
 
 /** In-app path of a ticket's page (see src/ui/ROUTING.md). */
 export function ticketPath(ticketId: string): string {
   return `/app/tickets/${encodeURIComponent(ticketId)}`;
 }
 
-/** How a plan names a ticket, as Huddle labels do: `TH-12: Fix login`. */
-export function planTicketName(
-  ticket: { id: string; title: string | null; number?: number },
-  ticketPrefix?: string,
-): string {
-  const ref = huddleTicketRef(ticket, ticketPrefix);
+/** What a team names its tickets by: its own prefix and its organization's servers. */
+export interface TicketNaming {
+  ticketPrefix?: string;
+  sourcePrefixes?: readonly SourcePrefix[];
+}
+
+/**
+ * How a plan names a ticket, by the ID My Board shows it under: its outside
+ * one (`timehuddle-717: Fix login`), else its own (`TH-12: Fix login`).
+ */
+export function planTicketName(ticket: TicketRef, naming: TicketNaming = {}): string {
+  const ref =
+    ticketOutsideRefOf(ticket, naming.sourcePrefixes ?? [], null) ??
+    huddleTicketRef(ticket, naming.ticketPrefix);
   return ticket.title ? `${ref}: ${ticket.title}` : ref;
 }
 

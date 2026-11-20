@@ -349,7 +349,7 @@ export default function Huddle() {
   // `#` searches the team's tickets; a pick goes in as a link to it.
   const ticketTrigger = useTicketTrigger(
     postingTeamId,
-    allTeams.find((t) => t.id === postingTeamId)?.ticketPrefix,
+    allTeams.find((t) => t.id === postingTeamId),
   );
   // A send is in flight. The ref is what guards re-entry; the state only
   // drives the composer's busy send button.

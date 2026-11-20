@@ -192,13 +192,13 @@ export const ClockPage: React.FC = () => {
   // source of both: the ids posted are read back out of it (planItems). ──
   const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
   const teamMentions = useTeamMentions(gateTeamId);
-  const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
+  const gateTeam = allTeams.find((t) => t.id === gateTeamId);
   // `@` offers teammates and `#` the team's tickets, inserted as chips and
   // saved as links. A teammate's link is to their profile, so the mention
   // names exactly the person picked even when two share a first name
   // (postRefsIn).
   const personTrigger = usePersonTrigger(teamMentions);
-  const ticketTrigger = useTicketTrigger(gateTeamId, ticketPrefix);
+  const ticketTrigger = useTicketTrigger(gateTeamId, gateTeam);
   const triggers = useMemo(() => [personTrigger, ticketTrigger], [personTrigger, ticketTrigger]);
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
@@ -229,6 +229,12 @@ export const ClockPage: React.FC = () => {
       aliveRef.current = false;
     };
   }, []);
+  const editorHandleRef = useRef<RichEditorHandle | null>(null);
+  /** The editor's current markdown; the `text` mirror when it isn't mounted or can't say. */
+  const readEditor = async (): Promise<string> => {
+    const handle = editorHandleRef.current;
+    return handle ? handle.getContent().catch(() => textRef.current) : textRef.current;
+  };
   /**
    * Waits for the attachments (a submit pressed early), then takes them out of
    * the composer for the post — so a page left or a mode switched meanwhile
@@ -247,6 +253,9 @@ export const ClockPage: React.FC = () => {
     const noLookups = { members: false, tickets: false };
     let refs: TeamRefs = { members: [], ticketIds: new Set<string>() };
     let looked = noLookups;
+    // The editor's own content, not the `text` mirror: onChange lags a
+    // reference picked just before the press.
+    let draft: string;
     for (;;) {
       if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
       try {
@@ -257,23 +266,29 @@ export const ClockPage: React.FC = () => {
         if (aliveRef.current) setAwaitingUploads(false);
       }
       const settled = uploads.current();
-      const needs = gateTeamId ? refsNeeded(textRef.current) : noLookups;
-      if (refsCover(looked, needs)) break;
-      refs = await fetchTeamRefs(gateTeamId as string, needs);
-      looked = needs;
+      draft = await readEditor();
       if (!aliveRef.current) return null;
+      const needs = gateTeamId ? refsNeeded(draft) : noLookups;
+      if (!refsCover(looked, needs)) {
+        refs = await fetchTeamRefs(gateTeamId as string, needs);
+        looked = needs;
+        if (!aliveRef.current) return null;
+        continue;
+      }
       const now = uploads.current();
-      const unchanged =
-        now.length === settled.length && now.every((item, i) => item.id === settled[i].id);
-      if (unchanged && refsCover(looked, refsNeeded(textRef.current))) break;
+      if (now.length === settled.length && now.every((item, i) => item.id === settled[i].id)) {
+        break;
+      }
     }
-    if (!textRef.current.trim() && uploads.current().length === 0) return null;
+    if (!draft.trim() && uploads.current().length === 0) return null;
     const taken = uploads.take();
     const media = taken.map((item) => item.result as MediaItem);
-    const postText = textRef.current.trim();
+    const postText = draft.trim();
     return {
       media,
       text: postText,
+      /** The draft as the editor held it, untrimmed. */
+      draft,
       mentionUserIds: postRefsIn(postText, refs).mentions,
       ticketIds: postRefsIn(postText, refs).ticketIds,
       /** For a wrap-up whose saved text differs from the draft (the plan put back). */
@@ -292,13 +307,11 @@ export const ClockPage: React.FC = () => {
   // the `text` mirror can lag the last keystroke (onChange is asynchronous),
   // and reloading the editor from it would drop that edit. Read again if the
   // mirror moves while reading, so an edit made meanwhile isn't lost either.
-  const editorHandleRef = useRef<RichEditorHandle | null>(null);
   const appendToPlan = async (item: string, skip?: (current: string) => boolean) => {
     let current = textRef.current;
     for (let attempt = 0; attempt < 3; attempt++) {
       const before = textRef.current;
-      const handle = editorHandleRef.current;
-      current = handle ? await handle.getContent().catch(() => textRef.current) : before;
+      current = await readEditor();
       if (!aliveRef.current) return;
       if (textRef.current === before) break;
     }
@@ -307,9 +320,7 @@ export const ClockPage: React.FC = () => {
   };
 
   const handleTicketSelect = (ticket: TicketRef) => {
-    void appendToPlan(
-      planTicketItem({ id: ticket.id, name: planTicketName(ticket, ticketPrefix) }),
-    );
+    void appendToPlan(planTicketItem({ id: ticket.id, name: planTicketName(ticket, gateTeam) }));
   };
 
   // ── Recent sessions — the user's last completed sessions on this team ──
@@ -585,7 +596,7 @@ export const ClockPage: React.FC = () => {
       ? pendingStart.request.ticket.id
       : null;
   // Written once per waiting ticket: deleting its line keeps it deleted, even
-  // when the effect re-runs (the team list reloading changes `ticketPrefix`).
+  // when the effect re-runs (the team list reloading changes `gateTeam`).
   const writtenPendingRef = useRef<string | null>(null);
   useEffect(() => {
     if (!pendingTicketId) {
@@ -602,7 +613,7 @@ export const ClockPage: React.FC = () => {
         if (cancelled || ticket.teamId !== gateTeamId) return;
         const item = planTicketItem({
           id: ticket.id,
-          name: planTicketName(ticket, ticketPrefix),
+          name: planTicketName(ticket, gateTeam),
         });
         writtenPendingRef.current = pendingTicketId;
         void appendToPlan(item, (current) => ticketIdsInText(current).includes(ticket.id));
@@ -611,7 +622,7 @@ export const ClockPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [pendingTicketId, ticketPrefix, gateTeamId]);
+  }, [pendingTicketId, gateTeam, gateTeamId]);
 
   const showEditor = composerExpanded || !!text.trim() || uploads.items.length > 0;
   // Something to post: words, or a file on its own (a screenshot, say).
@@ -639,7 +650,7 @@ export const ClockPage: React.FC = () => {
       giveBack = ready.giveBack;
       const { media, mentionUserIds } = ready;
       const trimmed = ready.text;
-      const draft = textRef.current;
+      const { draft } = ready;
       const attachments = media.map(toPostAttachment);
       const created = await huddleApi.createPost({
         teamId: gateTeamId,

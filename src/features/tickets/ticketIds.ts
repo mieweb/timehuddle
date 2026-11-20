@@ -58,6 +58,21 @@ export function carriedRefOf(
 }
 
 /**
+ * The outside ID a TimeHuddle ticket goes by: the Redmine issue it carries
+ * (`RMX-150`), else its link's (`timehuddle-717`); null when it has neither.
+ */
+export function ticketOutsideRefOf(
+  ticket: Partial<Pick<Ticket, 'github' | 'linkIsIssue' | 'linkedIssue'>>,
+  prefixes: readonly SourcePrefix[],
+  redmineHost: string | null,
+): string | null {
+  return (
+    carriedRefOf(ticket.linkedIssue ?? null, prefixes, redmineHost) ??
+    linkRefOf({ github: ticket.github ?? '', linkIsIssue: ticket.linkIsIssue ?? null }, prefixes)
+  );
+}
+
+/**
  * The outside ID a ticket goes by, when it has a named one: the issue it is
  * linked to (`RM0-214`), or the link it carries (`timehuddle-717`). Null for a
  * pure TimeHuddle ticket, and for an issue's own row, whose `ref` already is one.

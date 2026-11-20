@@ -9,7 +9,7 @@
  * sent text against it — SuperChat's own ids still come through and are
  * unioned by the caller.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTeamMembers } from './api';
 import { withoutProfileLinks } from './planItems';
 import type { TeamMember } from './types';
@@ -43,8 +43,11 @@ export function detectGroupMentions(text: string): GroupMention[] {
 
 export interface TeamMentions {
   options: MentionOption[];
-  /** The team's members once loaded (empty if the request failed). */
-  roster: Promise<TeamMember[]>;
+  /**
+   * Reads the team's members afresh, sharing a read already in flight. A
+   * failed read gives the last roster loaded (empty when there is none).
+   */
+  loadRoster: () => Promise<TeamMember[]>;
 }
 
 function escapeRegExp(value: string): string {
@@ -68,29 +71,34 @@ export function detectMentions(text: string, members: TeamMember[]): string[] {
 
 export function useTeamMentions(teamId: string | null | undefined): TeamMentions {
   const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
+  const loadedRef = useRef(loaded);
+  const inFlight = useRef<{ teamId: string; request: Promise<TeamMember[]> } | null>(null);
 
-  // The roster as a request, so a search typed before it arrives can wait on it.
-  const request = useMemo(
-    () =>
-      teamId
-        ? fetchTeamMembers(teamId).catch((err): TeamMember[] => {
-            console.error('[useTeamMentions] Failed to load team members:', err);
-            return [];
-          })
-        : Promise.resolve<TeamMember[]>([]),
-    [teamId],
-  );
+  const loadRoster = useCallback((): Promise<TeamMember[]> => {
+    if (!teamId) return Promise.resolve([]);
+    if (inFlight.current?.teamId === teamId) return inFlight.current.request;
+    const request = fetchTeamMembers(teamId)
+      .then((members) => {
+        loadedRef.current = { teamId, members };
+        setLoaded(loadedRef.current);
+        return members;
+      })
+      .catch((err): TeamMember[] => {
+        console.error('[useTeamMentions] Failed to load team members:', err);
+        return loadedRef.current?.teamId === teamId ? loadedRef.current.members : [];
+      })
+      .finally(() => {
+        if (inFlight.current?.request === request) inFlight.current = null;
+      });
+    inFlight.current = { teamId, request };
+    return request;
+  }, [teamId]);
 
+  // Runs again each time a retained <Activity> shows the page, so teammates
+  // who joined meanwhile are offered.
   useEffect(() => {
-    if (!teamId) return;
-    let cancelled = false;
-    void request.then((data) => {
-      if (!cancelled) setLoaded({ teamId, members: data });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [teamId, request]);
+    void loadRoster();
+  }, [loadRoster]);
 
   // Keyed by team: the previous team's roster must not mention people into this team's post.
   const members = useMemo(
@@ -101,8 +109,8 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
   return useMemo(
     () => ({
       options: members.map((member) => ({ id: member.id, label: member.name })),
-      roster: request,
+      loadRoster,
     }),
-    [members, request],
+    [members, loadRoster],
   );
 }
