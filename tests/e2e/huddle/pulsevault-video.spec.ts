@@ -33,6 +33,7 @@ import {
   clockOut,
   composerEditor,
   inboxComposer,
+  mediaInput,
   openComposer,
   openPostInInbox,
   sendFromInbox,
@@ -65,16 +66,15 @@ test.describe('Huddle — direct video upload', () => {
     await clockOut(page);
   });
 
-  test("uploading a video via the composer's Video button posts a playable video", async ({
+  test("uploading a video via the composer's Media button posts a playable video", async ({
     page,
   }) => {
     const postText = `Huddle Video Post ${Date.now()}`;
 
     await composerEditor(page).fill(postText);
 
-    await page.getByRole('button', { name: 'Video', exact: true }).click();
-    const videoInput = page.locator('input[type="file"][aria-label="Choose a video to attach"]');
-    await videoInput.setInputFiles(TEST_MP4);
+    await page.getByRole('button', { name: 'Media', exact: true }).click();
+    await mediaInput(page).setInputFiles(TEST_MP4);
 
     // The attach bar shows the filename as a chip once uploadMedia() resolves.
     await expect(page.getByText('test-video.mp4')).toBeVisible({ timeout: 20000 });

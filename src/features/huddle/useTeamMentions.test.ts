@@ -2,13 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchTeamMembers } from './api';
-import {
-  GROUP_MENTION_OPTIONS,
-  detectGroupMentions,
-  detectMentions,
-  isGroupMentionId,
-  useTeamMentions,
-} from './useTeamMentions';
+import { detectGroupMentions, detectMentions, useTeamMentions } from './useTeamMentions';
 
 vi.mock('./api', () => ({ fetchTeamMembers: vi.fn() }));
 
@@ -39,41 +33,9 @@ describe('useTeamMentions', () => {
     ]);
   });
 
-  it('resolves a mention of a teammate who has never posted in the thread', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('can you look at this @Priya')).toEqual(['u1']);
-  });
-
-  it('matches case-insensitively and ignores surrounding punctuation', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('(@priya) and @Bob, thanks')).toEqual(['u1', 'u2']);
-  });
-
-  it('does not match a longer name that merely starts with the token', async () => {
-    const { result } = await renderWithRoster();
-    // '@Bob' must not also fire 'Bobby', and '@Bobby' must not fire 'Bob'.
-    expect(result.current.detect('@Bobby please')).toEqual(['u3']);
-  });
-
-  it('ignores an email address rather than reading it as a mention', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('mail priya@bob.com')).toEqual([]);
-  });
-
-  it('leaves a first name two teammates share unresolved rather than tagging both', async () => {
-    mockFetch.mockResolvedValue([
-      ...roster,
-      { id: 'u4', name: 'Priya Patel', email: 'pp@x.com', username: null, image: null },
-    ]);
-    const { result } = renderHook(() => useTeamMentions('team-1'));
-    await waitFor(() => expect(result.current.options).toHaveLength(4));
-    expect(result.current.detect('@Priya and @Bob')).toEqual(['u2']);
-  });
-
   it('returns nothing without a team', () => {
     const { result } = renderHook(() => useTeamMentions(null));
     expect(result.current.options).toEqual([]);
-    expect(result.current.detect('@Priya')).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -83,6 +45,35 @@ describe('useTeamMentions', () => {
     const { result } = renderHook(() => useTeamMentions('team-1'));
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     expect(result.current.options).toEqual([]);
+  });
+
+  it('reads the roster again after a failed load, sharing a read in flight', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch.mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useTeamMentions('team-1'));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await expect(result.current.loadRoster()).resolves.toEqual([]);
+
+    mockFetch.mockResolvedValue(roster);
+    const first = result.current.loadRoster();
+    expect(result.current.loadRoster()).toBe(first);
+    await expect(first).resolves.toEqual(roster);
+    await waitFor(() => expect(result.current.options).toHaveLength(3));
+  });
+
+  it('keeps the current team’s roster when the previous team’s answers late', async () => {
+    let answerTeamOne: (members: typeof roster) => void = () => {};
+    mockFetch.mockImplementationOnce(() => new Promise((resolve) => (answerTeamOne = resolve)));
+    mockFetch.mockResolvedValueOnce([roster[0]]);
+    const { result, rerender } = renderHook(({ teamId }) => useTeamMentions(teamId), {
+      initialProps: { teamId: 'team-1' },
+    });
+    rerender({ teamId: 'team-2' });
+    await waitFor(() => expect(result.current.options).toHaveLength(1));
+
+    answerTeamOne(roster);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(result.current.options).toEqual([{ id: 'u1', label: 'Priya Sharma' }]);
   });
 
   it('drops the previous team’s roster as soon as the team changes', async () => {
@@ -95,13 +86,33 @@ describe('useTeamMentions', () => {
 
     rerender({ teamId: 'team-2' });
     expect(result.current.options).toEqual([]);
-    expect(result.current.detect('@Priya')).toEqual([]);
   });
 });
 
 describe('detectMentions', () => {
-  it('resolves against an arbitrary roster, not just the hook’s own team', () => {
-    expect(detectMentions('ping @Bob please', roster)).toEqual(['u2']);
+  it('resolves a teammate by first name', () => {
+    expect(detectMentions('can you look at this @Priya', roster)).toEqual(['u1']);
+  });
+
+  it('matches case-insensitively and ignores surrounding punctuation', () => {
+    expect(detectMentions('(@priya) and @Bob, thanks', roster)).toEqual(['u1', 'u2']);
+  });
+
+  it('does not match a longer name that merely starts with the token', () => {
+    // '@Bob' must not also fire 'Bobby', and '@Bobby' must not fire 'Bob'.
+    expect(detectMentions('@Bobby please', roster)).toEqual(['u3']);
+  });
+
+  it('ignores an email address rather than reading it as a mention', () => {
+    expect(detectMentions('mail priya@bob.com', roster)).toEqual([]);
+  });
+
+  it('leaves a first name two teammates share unresolved rather than tagging both', () => {
+    const shared = [
+      ...roster,
+      { id: 'u4', name: 'Priya Patel', email: 'pp@x.com', username: null, image: null },
+    ];
+    expect(detectMentions('@Priya and @Bob', shared)).toEqual(['u2']);
   });
 });
 
@@ -116,8 +127,13 @@ describe('group mentions', () => {
     expect(detectGroupMentions('@teamwork and ops@team.com')).toEqual([]);
   });
 
-  it('keeps the group options out of the user-id mentions', () => {
-    for (const option of GROUP_MENTION_OPTIONS) expect(isGroupMentionId(option.id)).toBe(true);
-    expect(isGroupMentionId('u1')).toBe(false);
+  it('reads a teammate’s profile link as that person, not the group', () => {
+    expect(detectGroupMentions('[@Team Support](/app/profile/u9) and @here')).toEqual(['here']);
+  });
+
+  it('reads no group in a linked ticket’s title', () => {
+    expect(detectGroupMentions('[TH-7: Fix @team alerts](/app/tickets/t7) and @here')).toEqual([
+      'here',
+    ]);
   });
 });

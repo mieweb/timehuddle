@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { attachmentChipCount, openComposer, setSharedTeamPlanGate } from './helpers';
+import { attachmentChipCount, mediaInput, openComposer, setSharedTeamPlanGate } from './helpers';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 
@@ -130,9 +130,11 @@ test.describe('Large attachment uploads', () => {
     const uploadResponse = page.waitForResponse(
       (res) => res.url().includes('/api/media/upload') && res.status() === 200,
     );
-    await page
-      .locator('input[type="file"][accept="image/*"]')
-      .setInputFiles({ name: 'IMG_4821.JPG', mimeType: 'image/jpeg', buffer: photo });
+    await mediaInput(page).setInputFiles({
+      name: 'IMG_4821.JPG',
+      mimeType: 'image/jpeg',
+      buffer: photo,
+    });
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
 
     const res = await uploadResponse;
@@ -150,9 +152,11 @@ test.describe('Large attachment uploads', () => {
     const uploadResponse = page.waitForResponse(
       (res) => res.url().includes('/api/media/upload') && res.status() === 200,
     );
-    await page
-      .locator('input[type="file"][accept="image/*"]')
-      .setInputFiles({ name: 'Screenshot.png', mimeType: 'image/png', buffer: screenshot });
+    await mediaInput(page).setInputFiles({
+      name: 'Screenshot.png',
+      mimeType: 'image/png',
+      buffer: screenshot,
+    });
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
 
     const res = await uploadResponse;

@@ -485,6 +485,18 @@ describe('postsToConversations', () => {
       expect(label).toContain('[RMX-656: Fix login](/app/tickets/tkt-3)');
     });
 
+    it('leaves out of the label a ticket already linked in the plan text', () => {
+      const post = makePost({
+        id: 'p1',
+        content: { text: '- [ ] [TH-1: Onboarding checklist](/app/tickets/tkt-1)', mentions: [] },
+        tickets: [tickets[0], { id: 'tkt-4', title: 'Payroll', label: 'TH-4: Payroll' }],
+      });
+      const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
+      const label = conversation.thread[0].label ?? '';
+      expect(label).not.toContain('/app/tickets/tkt-1');
+      expect(label).toContain('[TH-4: Payroll](/app/tickets/tkt-4)');
+    });
+
     it('falls back to the title when the post carries no label', () => {
       const [conversation] = postsToConversations(
         [makePost({ id: 'p1', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] })],
