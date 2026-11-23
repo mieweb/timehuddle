@@ -7,10 +7,13 @@
  *      ticket timer is running) or a "plan required" badge when the team
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
- *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
+ *   2. Today's plan — while clocked in, the plan's live state (TodayPlan):
+ *      items checked off, the ticket running, a button to start each ticket.
+ *      The posted plan in Huddle stays as posted.
+ *   3. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Video/Doc/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
- *   3. Recent sessions — the user's last completed sessions on this team.
+ *   4. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
  * page never needs a reload. With the team setting off, it's a plain
@@ -77,7 +80,9 @@ import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload
 import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
+import { TodayPlan } from './TodayPlan';
 import { useRecentSessions } from './useRecentSessions';
+import { useSessionPlan } from './useSessionPlan';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
@@ -166,6 +171,8 @@ export const ClockPage: React.FC = () => {
   const runningTicket = useRunningTicket(isClockedIn);
   // A timer started while clocked out, waiting for this clock-in (#586).
   const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
+  // Today's plan as it stands — items checked off, the ticket running (M4).
+  const sessionPlan = useSessionPlan();
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -463,6 +470,11 @@ export const ClockPage: React.FC = () => {
         postedPlan?.content.text ??
         '')
       : '';
+
+  // The session's plan post, which today's plan starts from (TodayPlan). Only
+  // a plan-required team's session has one.
+  const sessionPlanText =
+    sessionPost?.content.text ?? sessionPostFetch?.content.text ?? postedPlan?.content.text ?? null;
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
   // Snapshot `text` (what the editor is given) at each (re)mount — not
@@ -960,8 +972,12 @@ export const ClockPage: React.FC = () => {
                   className="inline-flex max-w-full cursor-pointer items-center gap-1.5 hover:opacity-90"
                 >
                   <FontAwesomeIcon icon={faTicket} className="shrink-0" aria-hidden />
-                  <span className="min-w-0 max-w-[min(100%,20rem)] truncate sm:max-w-md md:max-w-lg">
-                    {runningTicket.title}
+                  {/* Its time ticks every second, so nothing here is a live region. */}
+                  <span className="min-w-0 max-w-[min(100%,20rem)] truncate tabular-nums sm:max-w-md md:max-w-lg">
+                    {clockText.runningTicketTime(
+                      runningTicket.title,
+                      formatTimer((currentTime - runningTicket.startTime) / 1000),
+                    )}
                   </span>
                 </Badge>
               </Button>
@@ -993,6 +1009,16 @@ export const ClockPage: React.FC = () => {
               {timerText.cancelPendingStart}
             </Button>
           </div>
+        )}
+
+        {/* ── Today's plan: its live state, apart from the posted plan (M4) ── */}
+        {isClockedIn && (
+          <TodayPlan
+            sessionPlan={sessionPlan}
+            postedText={sessionPlanText}
+            triggers={triggers}
+            now={currentTime}
+          />
         )}
 
         {/* ── Composer-first: a big prompt, then one card holding the plan/

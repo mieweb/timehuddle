@@ -203,6 +203,15 @@ describe("today's plan on the session", () => {
     expect(await updates()).toEqual(['*Checked off “Lunch”*', '*Unchecked “Lunch”*']);
   });
 
+  it('announces the first plan of a session that had no plan post', async () => {
+    const db = await getDb();
+    await db.collection('clockevents').updateMany({ userId }, { $unset: { planItems: '' } });
+    await wormhole('clock.setPlan', { teamId, items: [{ ticketId: bravo }] }, jwt);
+    expect(await updates()).toEqual([
+      `*Added [TH-2: Bravo](/app/tickets/${bravo}) to today's plan*`,
+    ]);
+  });
+
   it('leaves another team’s ticket out of the plan', async () => {
     const res = await wormhole<Plan>(
       'clock.setPlan',

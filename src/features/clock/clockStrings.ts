@@ -104,4 +104,33 @@ export const clockText = {
       : `${count} sessions under 1 minute hidden`;
   },
   showShortSessions: (shown: boolean) => (shown ? 'Hide' : 'Show'),
+
+  // ── Today's plan (while clocked in, M4) ──
+  todaysPlan: "Today's plan",
+  planProgress: (done: number, total: number) => `${done} of ${total} done`,
+  planWorking: 'Working on it',
+  planTodo: 'To do',
+  planDone: 'Done',
+  planOverdue: 'Overdue',
+  editPlan: 'Edit plan',
+  loadingTodaysPlan: "Loading today's plan",
+  noPlanItems: 'Nothing on the plan yet. Edit it to add tickets (#) or a checklist.',
+  planLoadFailed: "Could not load today's plan",
+  retry: 'Try again',
+  /** Where an edit shows, and what doesn't change. */
+  planEditHint:
+    'Changes show here and on My Board, and each item you add is posted to Huddle. Your plan post stays as posted.',
+  planEditLabel: "Edit today's plan",
+  savePlan: 'Save plan',
+  cancel: 'Cancel',
+  planSaveFailed: 'Could not save the plan. Please try again.',
+  planCheckFailed: 'Could not update the plan. Please try again.',
+  /** A ticket's time this session on its plan item; the running one says so. */
+  planItemTime: (time: string, running: boolean) => (running ? `${time} · running` : time),
+  /** Before the plan's ticket buttons. */
+  workOn: 'Work on',
+  /** A plan ticket's start button: its ID, as My Board leads with it. */
+  startPlanTicketLabel: (title: string) => `Start timer for ${title}`,
+  /** The running ticket's badge under the clock: its name and live time. */
+  runningTicketTime: (title: string, time: string) => `${title} · ${time}`,
 } as const;

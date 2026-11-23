@@ -199,9 +199,10 @@ Meteor.methods({
   /**
    * Set today's plan from its items in order (`{ ticketId }` or `{ text,
    * checked? }`). Items already in it keep whether they're checked off. Each
-   * new item is announced ("Added TH-307 to today's plan"), except when
-   * `initial`: the plan the session opened with was announced by its post,
-   * and an initial plan never replaces one already set.
+   * new item is announced ("Added TH-307 to today's plan") — a session with
+   * no plan post included — except when `initial`: the plan the session
+   * opened with was announced by its post, and an initial plan never
+   * replaces one already set.
    */
   async 'clock.setPlan'({ teamId, items, initial = false } = {}) {
     const { userId } = await requireIdentity(this);
@@ -217,7 +218,7 @@ Meteor.methods({
     const kept = input.filter((item) => !item.ticketId || ours.has(item.ticketId));
     const { items: next, added } = mergePlan(event.planItems, kept, newItemId);
     await savePlan(event, next);
-    if (hadPlan && !initial) await postPlanUpdates(event, PlanUpdate.ADDED, added);
+    if (!initial) await postPlanUpdates(event, PlanUpdate.ADDED, added);
     return publicPlan({ ...event, planItems: next });
   },
 
