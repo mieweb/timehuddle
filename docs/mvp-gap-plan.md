@@ -369,30 +369,42 @@ no ticket or mention chips on the Clock page.
 Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
 post is not edited to show progress.
 
-- [ ] Store the session's plan items and their checked state as session data,
-      separate from the posted message
-- [ ] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
-      "x of y done", ticket links via `getHref`, timer via `renderStepMeta`), edited
-      with the same editor as M3; the Pinned section reflects the same state
-- [ ] Ticket items in the plan post (and on the Clock page) start that ticket's
+- [x] Store the session's plan items and their checked state as session data,
+      separate from the posted message (`clockevents.planItems`, read and
+      changed through `clock.plan` / `clock.setPlan` / `clock.checkPlanItem`;
+      `meteor-backend/server/session-plan.js`)
+- [x] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
+      "x of y done", ticket links via `getHref`), edited with the same editor as
+      M3 (`src/features/clock/TodayPlan.tsx`). The plan starts from the
+      session's plan post, once
+- [ ] The Pinned section reflects the same state — waits on M2
+      ([#884](https://github.com/mieweb/timehuddle/issues/884)); My Board's rows
+      already read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
+- [x] Ticket items in the plan post (and on the Clock page) start that ticket's
       timer through `useTicketStart`, so the posted plan is the launching point
-- [ ] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
+- [x] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
       switching checks the previous ticket off, returning unchecks it and resumes
       its timer, and items can be checked or unchecked by hand
-- [ ] Starting, switching, checking off and adding to the plan each append a
+- [x] Starting, switching, checking off and adding to the plan each append a
       Huddle post (keep `main`'s "Started …" / "Switched to …", noting what was
       checked off; add "Added … to today's plan")
 - [ ] The plan post is edited only for a radical plan rewrite, and the edit is
       shown with its time and author per
-      [#797](https://github.com/mieweb/timehuddle/issues/797)
-- [ ] Live timer `Badge` on the running ticket's row and plan item
-- [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
-      have no socket)
-- [ ] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its
+      [#797](https://github.com/mieweb/timehuddle/issues/797) — progress no
+      longer edits it; showing the edit's time and author waits on #797
+- [x] Live timer `Badge` on the running ticket's row and under the Clock page's
+      timer; the plan item shows its time as the step's note
+- [ ] Follow-up: `ActionPlan` draws `renderStepMeta` only beside an owner or
+      due date, so the plan item's timer can't be a pill there yet — fix
+      upstream through `vendor/ui`
+- [x] After REST writes, refresh the feed rather than waiting for DDP (mobile may
+      have no socket) — `requestHuddleRefresh`, served when Huddle resumes
+- [x] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its
       timer resumed and TH-2 checked off, on both the Clock page and the Board
-- [ ] Done when: each switch or check appears in Huddle as a new post, with the
-      plan post unchanged
-- [ ] Done when: timers don't announce every second
+      (My Board's rows; the Pinned section with M2)
+- [x] Done when: each switch or check appears in Huddle as a new post, with the
+      plan post unchanged (`meteor-backend/tests/session-plan.test.ts`)
+- [x] Done when: timers don't announce every second
 
 ### M5 — Clock-Out Carry-Over
 
