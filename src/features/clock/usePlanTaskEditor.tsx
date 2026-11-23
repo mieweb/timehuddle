@@ -27,6 +27,7 @@ import type { SessionPlanState } from './useSessionPlan';
 
 type TicketItem = Extract<SessionPlanItem, { ticketId: string }>;
 const isTicket = (item: SessionPlanItem): item is TicketItem => 'ticketId' in item;
+type TextItem = Exclude<SessionPlanItem, TicketItem>;
 
 /** When a running ticket's time this session counts from: its earlier stints included. */
 const countsFrom = (item: TicketItem, runningSince: number) => runningSince - item.seconds * 1000;
@@ -52,11 +53,16 @@ export function planItemsFor(
       (ticketId) => items.find((item) => isTicket(item) && item.ticketId === ticketId) ?? [],
     );
   }
-  const words = looseWords(identity.text);
-  const item = items.find(
-    (candidate) => !isTicket(candidate) && looseWords(candidate.text) === words,
+  const texts = items.filter((item): item is TextItem => !isTicket(item));
+  const shown = identity.text.replace(/\s+/g, ' ').trim();
+  const exact = texts.find(
+    (item) => item.text.trim() === shown || planItemWords(item.text).trim() === shown,
   );
-  return item ? [item] : [];
+  if (exact) return [exact];
+  // Loosely, only when one line reads that way: two may differ by markup alone.
+  const words = looseWords(shown);
+  const loose = texts.filter((item) => looseWords(item.text) === words);
+  return loose.length === 1 ? loose : [];
 }
 
 /** A line is checked when all it stands for is; undefined when the plan holds none of it. */
@@ -67,7 +73,7 @@ export function usePlanTaskEditor(
   sessionPlan: SessionPlanState,
   runningTicket: RunningTicket | null,
 ) {
-  const { plan, setChecked } = sessionPlan;
+  const { plan, error, setChecked } = sessionPlan;
   const { togglePlanTicket, isRunning, isBusy, busy, addBackPrompt } = usePlanTicketStart(
     runningTicket,
     sessionPlan,
@@ -85,6 +91,7 @@ export function usePlanTaskEditor(
   }, [registry]);
 
   const items = useMemo(() => plan?.items ?? [], [plan]);
+  registry.ready = () => plan !== null;
   registry.checkedOf = (identity) => checkedOfItems(planItemsFor(items, identity));
   registry.onToggle = async (identity, checked) => {
     const changing = planItemsFor(items, identity).filter((item) => item.checked !== checked);
@@ -147,5 +154,9 @@ export function usePlanTaskEditor(
       planItemsFor(items, 'ticketId' in identity ? { ticketIds: [identity.ticketId] } : identity),
     );
 
-  return { editorKits, timers, failure, checkedOf };
+  // A plan that can't be read says why: its boxes don't act until it is.
+  const shownFailure =
+    failure ?? (!plan && error ? clockText.planLoadFailedWith(error.message) : null);
+
+  return { editorKits, timers, failure: shownFailure, checkedOf };
 }

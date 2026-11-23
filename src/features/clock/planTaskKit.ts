@@ -34,6 +34,8 @@ export interface PlanTaskRegistry {
   subscribe: (listener: () => void) => () => void;
   /** Set by the host: save a tick of a line the plan holds. Rejecting puts the checkbox back. */
   onToggle: (identity: PlanTaskIdentity, checked: boolean) => Promise<void>;
+  /** Set by the host: whether the plan has loaded; until then no box acts. */
+  ready: () => boolean;
   /** Set by the host: whether a line is checked off; undefined when the plan doesn't hold it. */
   checkedOf: (identity: PlanTaskIdentity) => boolean | undefined;
   /** Call when `checkedOf`'s answers change, so every checkbox shows them. */
@@ -93,6 +95,7 @@ export function createPlanTaskRegistry(): PlanTaskRegistry {
       return () => listeners.delete(listener);
     },
     onToggle: async () => {},
+    ready: () => false,
     checkedOf: () => undefined,
     refreshChecks: () => views.forEach((view) => view.syncChecked()),
     add: (slot, view) => {
@@ -149,14 +152,26 @@ class PlanTaskItemView {
     this.checkbox.addEventListener('mousedown', (event) => event.preventDefault());
     this.checkbox.addEventListener('change', () => {
       const checked = this.checkbox.checked;
+      // Until the plan is read, a box can't tell a plan line from any other.
+      if (!this.registry.ready()) {
+        this.checkbox.checked = !checked;
+        return;
+      }
       const identity = identityOf(this.node);
       if (this.registry.checkedOf(identity) === undefined) {
         this.setDocumentChecked(checked);
         return;
       }
-      // Shown at once; the plan the server saves comes back as the editor's value.
+      // Shown at once; the plan the server saves comes back as the editor's
+      // value. One save at a time, so a quick second click isn't lost.
       this.dom.dataset.checked = String(checked);
-      this.registry.onToggle(identity, checked).catch(() => this.syncChecked());
+      this.checkbox.disabled = true;
+      this.registry
+        .onToggle(identity, checked)
+        .catch(() => this.syncChecked())
+        .finally(() => {
+          this.checkbox.disabled = false;
+        });
     });
   }
 

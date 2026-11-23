@@ -56,7 +56,7 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, triggers, run
     if (error) {
       return (
         <Text variant="destructive" size="sm" role="alert">
-          {clockText.planLoadFailed}
+          {clockText.planLoadFailedWith(error.message)}
         </Text>
       );
     }

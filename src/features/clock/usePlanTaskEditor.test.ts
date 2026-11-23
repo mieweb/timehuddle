@@ -21,4 +21,13 @@ describe('planItemsFor (#886)', () => {
     ]);
     expect(planItemsFor(ITEMS, { text: 'Written in the wrap-up' })).toEqual([]);
   });
+
+  it('tells apart lines that differ by markup alone', () => {
+    const items = [
+      { id: 'u', text: 'Deploy foo_bar', checked: false },
+      { id: 'p', text: 'Deploy foobar', checked: false },
+    ] satisfies SessionPlanItem[];
+    expect(planItemsFor(items, { text: 'Deploy foobar' }).map((item) => item.id)).toEqual(['p']);
+    expect(planItemsFor(items, { text: 'Deploy foo_bar' }).map((item) => item.id)).toEqual(['u']);
+  });
 });

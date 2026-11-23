@@ -109,7 +109,7 @@ export const clockText = {
   todaysPlan: "Today's plan",
   planProgress: (done: number, total: number) => `${done} of ${total} done`,
   loadingTodaysPlan: "Loading today's plan",
-  planLoadFailed: "Could not load today's plan",
+  planLoadFailedWith: (reason: string) => `Could not load today's plan: ${reason}`,
   planSaveFailed: 'Could not save the plan. Please try again.',
   planCheckFailed: 'Could not update the plan. Please try again.',
   /** A plan ticket's timer button. */
