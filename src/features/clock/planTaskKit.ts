@@ -10,19 +10,21 @@
  *
  * A checkbox shows the session plan's state (`checkedOf`), not the text's:
  * Kerebron's markdown reader drops `[x]`, so the text alone would load every
- * item unchecked.
+ * item unchecked. A line the plan doesn't hold (one written in the wrap-up)
+ * is an ordinary checklist line: its box toggles the document's own state.
  */
 import type { EditorKit } from '@kerebron/editor';
 import { NodeTaskItem } from '@kerebron/extension-basic-editor/NodeTaskItem';
 import type { Node as PmNode } from 'prosemirror-model';
+import type { EditorView } from 'prosemirror-view';
 
-/** What a checklist line is: a ticket of the plan, or a line of text. */
-export type PlanTaskIdentity = { ticketId: string } | { text: string };
+/** What a checklist line is: the plan's tickets it holds, or a line of text. */
+export type PlanTaskIdentity = { ticketIds: string[] } | { text: string };
 
 export interface PlanTaskSlot {
   element: HTMLElement;
-  /** The ticket the item holds, if it holds one. */
-  ticketId: string | null;
+  /** The tickets the line holds, in order; each gets its timer. */
+  ticketIds: string[];
 }
 
 export interface PlanTaskRegistry {
@@ -30,9 +32,9 @@ export interface PlanTaskRegistry {
   slots: () => PlanTaskSlot[];
   /** Calls `listener` whenever a slot comes, goes or changes ticket. */
   subscribe: (listener: () => void) => () => void;
-  /** Set by the host: save a tick. Rejecting puts the checkbox back. */
+  /** Set by the host: save a tick of a line the plan holds. Rejecting puts the checkbox back. */
   onToggle: (identity: PlanTaskIdentity, checked: boolean) => Promise<void>;
-  /** Set by the host: whether an item is checked off; undefined keeps the text's. */
+  /** Set by the host: whether a line is checked off; undefined when the plan doesn't hold it. */
   checkedOf: (identity: PlanTaskIdentity) => boolean | undefined;
   /** Call when `checkedOf`'s answers change, so every checkbox shows them. */
   refreshChecks: () => void;
@@ -50,22 +52,19 @@ function ticketIdOfHref(href: unknown): string | null {
   }
 }
 
-/** The first ticket a task item holds: a ticket chip, or a link to a ticket. */
-function ticketIdIn(node: PmNode): string | null {
-  let found: string | null = null;
+/** The tickets a task item holds, in order, each once: ticket chips, or links to tickets. */
+function ticketIdsIn(node: PmNode): string[] {
+  const found: string[] = [];
+  const add = (id: string | null) => {
+    if (id && !found.includes(id)) found.push(id);
+  };
   node.descendants((child) => {
-    if (found) return false;
     if (child.type.name === 'reference' && child.attrs.kind === 'ticket') {
-      found = ticketIdOfHref(child.attrs.href) ?? (child.attrs.id as string);
+      add(ticketIdOfHref(child.attrs.href) ?? (child.attrs.id as string));
       return false;
     }
-    for (const mark of child.marks) {
-      const id = mark.type.name === 'link' ? ticketIdOfHref(mark.attrs.href) : null;
-      if (id) {
-        found = id;
-        return false;
-      }
-    }
+    for (const mark of child.marks)
+      if (mark.type.name === 'link') add(ticketIdOfHref(mark.attrs.href));
     return true;
   });
   return found;
@@ -73,9 +72,14 @@ function ticketIdIn(node: PmNode): string | null {
 
 /** A task item's identity, as `planChecklist` reads its markdown line. */
 function identityOf(node: PmNode): PlanTaskIdentity {
-  const ticketId = ticketIdIn(node);
-  return ticketId ? { ticketId } : { text: node.textContent.trim() };
+  const ticketIds = ticketIdsIn(node);
+  return ticketIds.length ? { ticketIds } : { text: node.textContent.trim() };
 }
+
+const sameIds = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
+
+let nextContentId = 0;
 
 export function createPlanTaskRegistry(): PlanTaskRegistry {
   const slots = new Set<PlanTaskSlot>();
@@ -120,6 +124,8 @@ class PlanTaskItemView {
 
   constructor(
     private node: PmNode,
+    private view: EditorView,
+    private getPos: () => number | undefined,
     private registry: InternalRegistry,
   ) {
     this.dom = document.createElement('li');
@@ -132,18 +138,35 @@ class PlanTaskItemView {
     slotElement.className = 'plan-task-slot';
     slotElement.contentEditable = 'false';
     this.contentDOM = document.createElement('div');
+    // The box is named by its line's text.
+    this.contentDOM.id = `plan-task-${++nextContentId}`;
+    this.checkbox.setAttribute('aria-labelledby', this.contentDOM.id);
     this.dom.append(label, slotElement, this.contentDOM);
-    this.slot = { element: slotElement, ticketId: ticketIdIn(node) };
+    this.slot = { element: slotElement, ticketIds: ticketIdsIn(node) };
     this.syncChecked();
     registry.add(this.slot, this);
 
     this.checkbox.addEventListener('mousedown', (event) => event.preventDefault());
     this.checkbox.addEventListener('change', () => {
       const checked = this.checkbox.checked;
+      const identity = identityOf(this.node);
+      if (this.registry.checkedOf(identity) === undefined) {
+        this.setDocumentChecked(checked);
+        return;
+      }
       // Shown at once; the plan the server saves comes back as the editor's value.
       this.dom.dataset.checked = String(checked);
-      this.registry.onToggle(identityOf(this.node), checked).catch(() => this.syncChecked());
+      this.registry.onToggle(identity, checked).catch(() => this.syncChecked());
     });
+  }
+
+  /** A line the plan doesn't hold: its check is the document's, as with the stock item. */
+  private setDocumentChecked(checked: boolean): void {
+    const pos = this.getPos();
+    if (pos === undefined) return;
+    this.view.dispatch(
+      this.view.state.tr.setNodeMarkup(pos, undefined, { ...this.node.attrs, checked }),
+    );
   }
 
   /** Show the plan's state for this item (the text's, if the plan doesn't say). */
@@ -157,9 +180,9 @@ class PlanTaskItemView {
     if (node.type !== this.node.type) return false;
     this.node = node;
     this.syncChecked();
-    const ticketId = ticketIdIn(node);
-    if (ticketId !== this.slot.ticketId) {
-      this.slot.ticketId = ticketId;
+    const ticketIds = ticketIdsIn(node);
+    if (!sameIds(ticketIds, this.slot.ticketIds)) {
+      this.slot.ticketIds = ticketIds;
       this.registry.changed();
     }
     return true;
@@ -185,7 +208,8 @@ class PlanTaskItem extends NodeTaskItem {
   }
 
   override getNodeView() {
-    return ((node: PmNode) => new PlanTaskItemView(node, this.registry)) as unknown as ReturnType<
+    return ((node: PmNode, view: EditorView, getPos: () => number | undefined) =>
+      new PlanTaskItemView(node, view, getPos, this.registry)) as unknown as ReturnType<
       NodeTaskItem['getNodeView']
     >;
   }

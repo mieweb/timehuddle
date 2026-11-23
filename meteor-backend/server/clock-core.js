@@ -204,8 +204,9 @@ export function toPublicClockEvent(event, breaks) {
     shiftReminderResponse: event.shiftReminderResponse ?? null,
     shiftAutoClockoutWorkSecs: event.shiftAutoClockoutWorkSecs ?? null,
     shiftNextReminderWorkSecs: event.shiftNextReminderWorkSecs ?? null,
-    // Today's plan as ids and checks (session-plan.js); read it resolved via `clock.plan`.
-    planItems: Array.isArray(event.planItems) ? event.planItems : null,
+    // Today's plan's revision, to say it changed; its items are read through
+    // `clock.plan`, which checks the reader may see them (session-plan.js).
+    planRev: event.planRev ?? null,
   };
 }
 

@@ -21,7 +21,14 @@ import { isValidId, rawDb } from './collections';
 import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
 import { normalizeSource } from './ticket-refs';
-import { mergePlan, planInput, touchAndGo, withChecked } from './session-plan-core';
+import {
+  MAX_ITEM_TEXT,
+  MAX_PLAN_ITEMS,
+  mergePlan,
+  planInput,
+  touchAndGo,
+  withChecked,
+} from './session-plan-core';
 import { PlanUpdate, planUpdateText } from './timer-updates-core';
 import { insertUpdatePost, teamTicketLabels } from './timer-updates';
 import { ticketName } from './ticket-label';
@@ -101,7 +108,14 @@ async function ensurePlan(event) {
   const text = post?.content?.text;
   if (typeof text !== 'string') return event;
   const ours = await teamTickets(event.teamId, planChecklist(text).flatMap(ticketIdOf));
-  const input = planInput(planChecklist(text, (id) => ours.has(id))) ?? [];
+  const input = planInput(planChecklist(text, (id) => ours.has(id)));
+  // Nothing is saved, so once the post is shortened the plan starts from it.
+  if (!input) {
+    throw new Meteor.Error(
+      'plan-too-long',
+      `Today's plan has more than ${MAX_PLAN_ITEMS} items, or an item over ${MAX_ITEM_TEXT} characters. Shorten your plan post to use it here.`,
+    );
+  }
   const { items } = mergePlan([], input, newItemId);
   // Only if no one else started it meanwhile; either way, read what's there.
   await clockEvents().updateOne(
@@ -230,8 +244,9 @@ async function postPlanUpdates(event, kind, items) {
  * being thrown away, so it isn't checked off either.
  *
  * Best-effort, like the updates: a timer starts whatever happens here.
- * @returns {Promise<{ ticketId: string, seconds: number } | null>} the ticket
- *   checked off, with its time this session, for the switch's update to name
+ * @returns {Promise<{ teamId: string, ticketId: string, seconds: number } | null>}
+ *   the ticket checked off, with its time this session and the plan's team,
+ *   for the switch's update to name
  */
 export async function planTouchAndGo(userId, previous, session, { discardPrevious = false } = {}) {
   try {
@@ -254,7 +269,11 @@ export async function planTouchAndGo(userId, previous, session, { discardPreviou
     const { checkedOff } = result;
     if (!result.changed || !checkedOff) return null;
     const times = await ticketTimes(userId, session.clockEventId);
-    return { ticketId: checkedOff.ticketId, seconds: totalSeconds(times.get(checkedOff.ticketId)) };
+    return {
+      teamId: String(event.teamId),
+      ticketId: checkedOff.ticketId,
+      seconds: totalSeconds(times.get(checkedOff.ticketId)),
+    };
   } catch (err) {
     console.error('[session-plan] touch and go failed:', err);
     return null;

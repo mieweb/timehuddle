@@ -254,6 +254,75 @@ describe("today's plan on the session", () => {
     ]);
   });
 
+  it('saves no plan from a plan post it cannot use, and says why', async () => {
+    const db = await getDb();
+    await db
+      .collection('huddlePosts')
+      .updateOne({ _id: new ObjectId(planPostId) }, { $set: { 'content.text': `- [ ] ${'x'.repeat(501)}` } });
+    await db.collection('clockevents').updateMany({ userId }, { $unset: { planItems: '', planRev: '' } });
+    const read = await wormhole('clock.plan', { teamId }, jwt);
+    expect(read.ok).toBe(false);
+    expect(JSON.stringify(read)).toContain('Shorten your plan post');
+    const event = await db.collection('clockevents').findOne({ userId, endTime: null });
+    expect(event!.planItems).toBeUndefined();
+  });
+
+  it('tells the plan’s team of a check-off when the switch goes to another team’s ticket', async () => {
+    const db = await getDb();
+    const other = {
+      _id: new ObjectId(),
+      name: 'WH Plan Other Team',
+      members: [userId],
+      admins: [userId],
+      code: 'WHPLAN2',
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertOne(other);
+    const charlie = new ObjectId();
+    await db.collection('tickets').insertOne({
+      _id: charlie,
+      teamId: other._id.toHexString(),
+      title: 'Charlie',
+      number: 3,
+      status: 'open',
+      priority: 'medium',
+      createdBy: userId,
+      assignedTo: userId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    try {
+      await start(alpha);
+      await start(charlie.toHexString());
+      expect(await checks()).toMatchObject({ [alpha]: true });
+      expect(await updates()).toEqual([
+        `*Started [TH-1: Alpha](/app/tickets/${alpha})*`,
+        `*Checked off [TH-1: Alpha](/app/tickets/${alpha}) at 0m*`,
+      ]);
+    } finally {
+      await db.collection('tickets').deleteOne({ _id: charlie });
+      await db.collection('huddlePosts').deleteMany({ teamId: other._id.toHexString() });
+      await db.collection('teams').deleteOne({ _id: other._id });
+    }
+  });
+
+  it('keeps a check-off in Huddle when the switch that named it is discarded', async () => {
+    await start(alpha);
+    await start(bravo);
+    const running = await wormhole<{ session: { id: string } }>('timers.getRunning', {}, jwt);
+    await wormhole(
+      'timers.stopSession',
+      { sessionId: running.result.session.id, discardUpdate: true },
+      jwt,
+    );
+    expect(await checks()).toMatchObject({ [alpha]: true });
+    expect(await updates()).toEqual([
+      `*Started [TH-1: Alpha](/app/tickets/${alpha})*`,
+      `*Checked off [TH-1: Alpha](/app/tickets/${alpha}) at 0m*`,
+    ]);
+  });
+
   it('leaves another team’s ticket out of the plan', async () => {
     const res = await wormhole<Plan>(
       'clock.setPlan',

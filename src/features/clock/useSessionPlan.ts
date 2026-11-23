@@ -40,7 +40,7 @@ export function useSessionPlan(): SessionPlanState {
   const { activeClockEvent } = useTeam();
   const teamId = activeClockEvent && !activeClockEvent.endTime ? activeClockEvent.teamId : null;
   const eventId = activeClockEvent?.id ?? null;
-  const storedKey = JSON.stringify(activeClockEvent?.planItems ?? null);
+  const storedRev = activeClockEvent?.planRev ?? null;
   const self = useId();
 
   const [plan, setPlan] = useState<SessionPlan | null>(null);
@@ -73,7 +73,7 @@ export function useSessionPlan(): SessionPlanState {
 
   useEffect(() => {
     void refetch();
-  }, [refetch, eventId, storedKey]);
+  }, [refetch, eventId, storedRev]);
 
   // A timer started or stopped anywhere, this device or another: the server
   // has moved checks and times, which the stored plan alone may not show.
@@ -101,33 +101,32 @@ export function useSessionPlan(): SessionPlanState {
     };
   }, [refetch, self]);
 
-  /** A plan the server just returned from a change: shown here, re-read elsewhere. */
-  const applyChange = useCallback(
-    (next: SessionPlan) => {
-      readRef.current += 1;
-      setPlan(next);
-      setError(null);
-      setLoading(false);
-      window.dispatchEvent(new CustomEvent(PLAN_CHANGED, { detail: self }));
-      requestHuddleRefresh();
-    },
-    [self],
-  );
+  /**
+   * After a change: re-read rather than show the plan it returned, since of
+   * two changes at once the older reply can arrive last. Re-read elsewhere too.
+   */
+  const afterChange = useCallback(async () => {
+    window.dispatchEvent(new CustomEvent(PLAN_CHANGED, { detail: self }));
+    requestHuddleRefresh();
+    await refetch();
+  }, [self, refetch]);
 
   const setItems = useCallback(
     async (items: PlanItemInput[]) => {
       if (!teamId) return;
-      applyChange(await clockApi.setPlan(teamId, items));
+      await clockApi.setPlan(teamId, items);
+      await afterChange();
     },
-    [teamId, applyChange],
+    [teamId, afterChange],
   );
 
   const setChecked = useCallback(
     async (itemId: string, checked: boolean) => {
       if (!teamId) return;
-      applyChange(await clockApi.checkPlanItem(teamId, itemId, checked));
+      await clockApi.checkPlanItem(teamId, itemId, checked);
+      await afterChange();
     },
-    [teamId, applyChange],
+    [teamId, afterChange],
   );
 
   return { teamId, plan, loading, error, refetch, setItems, setChecked };

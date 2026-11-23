@@ -16,7 +16,7 @@ import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, redmineIssueLabel } from './ticket-label';
 import { normalizeSource } from './ticket-refs';
-import { timerUpdateText } from './timer-updates-core';
+import { PlanUpdate, planUpdateText, timerUpdateText } from './timer-updates-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -128,12 +128,13 @@ export async function teamTicketLabels(teamId, ticketIds) {
  *
  * @param {string} action one of `TimerUpdate`
  * @param {{ _id: unknown, userId: string, workItemId: string, clockEventId?: string | null }} session
- * @param {{ remember?: boolean, at?: number, checkedOff?: { ticketId: string, seconds: number } | null }} [options]
+ * @param {{ remember?: boolean, at?: number, checkedOff?: CheckedOff | null }} [options]
  *   `at` is when it happened (epoch ms), for an update that must read before
  *   something else stamped at the same moment; the default is now.
  *   `checkedOff` is a ticket this switch checked off today's plan (M4), named
- *   in the same update.
- * @returns {Promise<{ postId: string, teamId: string } | null>} null when nothing was posted
+ *   in the same update when the plan is that team's (`namedCheckOff`).
+ * @returns {Promise<{ postId: string, teamId: string, namedCheckOff: boolean } | null>}
+ *   null when nothing was posted
  */
 export async function postTimerUpdate(action, session, { remember = false, at, checkedOff = null } = {}) {
   try {
@@ -146,9 +147,10 @@ export async function postTimerUpdate(action, session, { remember = false, at, c
     if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
     const ids = (await ticketIdsForTeams(rawDb(), [audience.teamId])).get(audience.teamId);
     const label = audience.label(ids, hostOf(optionalRedmineBaseUrl()));
-    const doneLabel = checkedOff
-      ? (await teamTicketLabels(audience.teamId, [checkedOff.ticketId])).get(checkedOff.ticketId)
-      : null;
+    const doneLabel =
+      checkedOff && checkedOff.teamId === audience.teamId
+        ? (await teamTicketLabels(audience.teamId, [checkedOff.ticketId])).get(checkedOff.ticketId)
+        : null;
 
     const postId = await insertUpdatePost({
       teamId: audience.teamId,
@@ -161,9 +163,13 @@ export async function postTimerUpdate(action, session, { remember = false, at, c
     if (remember) {
       await rawDb()
         .collection('timers')
-        .updateOne({ _id: new ObjectId(hex(session._id)) }, { $set: { huddlePostId: postId } });
+        .updateOne(
+          { _id: new ObjectId(hex(session._id)) },
+          // A check-off it names is posted on its own if the update is discarded.
+          { $set: { huddlePostId: postId, ...(doneLabel ? { huddleCheckedOff: checkedOff } : {}) } },
+        );
     }
-    return { postId, teamId: audience.teamId };
+    return { postId, teamId: audience.teamId, namedCheckOff: !!doneLabel };
   } catch (err) {
     console.error('[timer-updates] could not post the update:', err);
     return null;
@@ -171,8 +177,38 @@ export async function postTimerUpdate(action, session, { remember = false, at, c
 }
 
 /**
+ * @typedef {{ teamId: string, ticketId: string, seconds: number }} CheckedOff
+ * a ticket a switch checked off today's plan, on the plan's team
+ */
+
+/**
+ * A check-off as its own update on the plan's team, for when no switch update
+ * there names it: the switch went to another team's ticket, posted nothing, or
+ * was discarded.
+ * @param {string} userId
+ * @param {CheckedOff | null | undefined} checkedOff
+ */
+export async function postCheckedOff(userId, checkedOff) {
+  try {
+    if (!checkedOff || !(await isOnTeam(checkedOff.teamId, userId))) return;
+    const label = (await teamTicketLabels(checkedOff.teamId, [checkedOff.ticketId])).get(
+      checkedOff.ticketId,
+    );
+    if (!label) return;
+    await insertUpdatePost({
+      teamId: checkedOff.teamId,
+      userId,
+      text: planUpdateText(PlanUpdate.CHECKED, { label }, checkedOff.seconds),
+    });
+  } catch (err) {
+    console.error('[timer-updates] could not post the check-off:', err);
+  }
+}
+
+/**
  * Remove the update a session opened with, when its owner chose to discard it,
- * along with any replies to it (as `huddle.deletePost` does).
+ * along with any replies to it (as `huddle.deletePost` does). A check-off it
+ * named still happened, so it stays in Huddle as its own update.
  */
 export async function discardTimerUpdate(userId, session) {
   try {
@@ -182,6 +218,7 @@ export async function discardTimerUpdate(userId, session) {
       .deleteOne({ _id: new ObjectId(session.huddlePostId), userId });
     if (removed.deletedCount) {
       await rawDb().collection('huddleComments').deleteMany({ postId: session.huddlePostId });
+      await postCheckedOff(userId, session.huddleCheckedOff);
     }
   } catch (err) {
     console.error('[timer-updates] could not discard the update:', err);

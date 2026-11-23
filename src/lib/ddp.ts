@@ -792,9 +792,7 @@ export function ddpDocToClockEvent(doc: DdpDoc): import('./api').ClockEvent {
     startTime: Number(doc.startTime ?? 0),
     accumulatedTime: Number(doc.accumulatedTime ?? 0),
     endTime: typeof doc.endTime === 'number' ? doc.endTime : null,
-    ...(Array.isArray(doc.planItems)
-      ? { planItems: doc.planItems as import('./api').StoredPlanItem[] }
-      : {}),
+    ...(typeof doc.planRev === 'number' ? { planRev: doc.planRev } : {}),
   };
 }
 

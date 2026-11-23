@@ -94,4 +94,12 @@ describe('withChecks (#886)', () => {
       withChecks(text, (item) => ('ticketId' in item ? plan[item.ticketId] : plan[item.text])),
     ).toBe('- [x] [TH-1](/app/tickets/t1)\n- [ ] Lunch\n- [ ] Other\nWrap-up');
   });
+
+  it('checks a line of several tickets only when all of them are', () => {
+    const text = '- [ ] Review [TH-1](/app/tickets/t1) and [TH-2](/app/tickets/t2)';
+    const check = (plan: Record<string, boolean>) =>
+      withChecks(text, (item) => ('ticketId' in item ? plan[item.ticketId] : undefined));
+    expect(check({ t1: true, t2: false })).toBe(text);
+    expect(check({ t1: true, t2: true })).toBe(text.replace('[ ]', '[x]'));
+  });
 });

@@ -28,7 +28,7 @@ import { unsentRedmineFor } from './redmine';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
 import { redmineStampFor } from './timer-core';
-import { discardTimerUpdate, postTimerUpdate } from './timer-updates';
+import { discardTimerUpdate, postCheckedOff, postTimerUpdate } from './timer-updates';
 import { TimerUpdate, startAction } from './timer-updates-core';
 import { planTouchAndGo } from './session-plan';
 
@@ -126,7 +126,10 @@ async function announceStart(userId, session, previous, discardSessionId) {
   });
   // Touch and go on today's plan (M4): the switch names what it checked off.
   const checkedOff = await planTouchAndGo(userId, previous, session, { discardPrevious });
-  return action ? postTimerUpdate(action, session, { remember: true, checkedOff }) : null;
+  const posted = action ? await postTimerUpdate(action, session, { remember: true, checkedOff }) : null;
+  // Otherwise the plan's own Huddle is told on its own.
+  if (checkedOff && !posted?.namedCheckOff) await postCheckedOff(userId, checkedOff);
+  return posted;
 }
 
 /**

@@ -32,17 +32,36 @@ const isTicket = (item: SessionPlanItem): item is TicketItem => 'ticketId' in it
 const countsFrom = (item: TicketItem, runningSince: number) => runningSince - item.seconds * 1000;
 
 /**
- * The plan item a checklist line stands for. A line's words may be as stored
- * (markdown, a picked mention as its link) or as shown (the mention's name).
+ * A line's words for matching, whether as stored (markdown, a picked mention
+ * as its link) or as shown (its chip): links read as their label, and
+ * markdown's emphasis, code and escape characters, and a mention's `@`, don't count.
  */
-export function planItemFor(items: readonly SessionPlanItem[], identity: PlanTaskIdentity) {
-  return items.find((item) =>
-    'ticketId' in identity
-      ? isTicket(item) && item.ticketId === identity.ticketId
-      : !isTicket(item) &&
-        (item.text.trim() === identity.text || planItemWords(item.text).trim() === identity.text),
+const looseWords = (text: string) =>
+  planItemWords(text)
+    .replace(/[*_~`\\@]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The plan items a checklist line stands for: its tickets the plan holds, or its line of text. */
+export function planItemsFor(
+  items: readonly SessionPlanItem[],
+  identity: PlanTaskIdentity,
+): SessionPlanItem[] {
+  if ('ticketIds' in identity) {
+    return identity.ticketIds.flatMap(
+      (ticketId) => items.find((item) => isTicket(item) && item.ticketId === ticketId) ?? [],
+    );
+  }
+  const words = looseWords(identity.text);
+  const item = items.find(
+    (candidate) => !isTicket(candidate) && looseWords(candidate.text) === words,
   );
+  return item ? [item] : [];
 }
+
+/** A line is checked when all it stands for is; undefined when the plan holds none of it. */
+const checkedOfItems = (found: SessionPlanItem[]) =>
+  found.length ? found.every((item) => item.checked) : undefined;
 
 export function usePlanTaskEditor(
   sessionPlan: SessionPlanState,
@@ -66,14 +85,12 @@ export function usePlanTaskEditor(
   }, [registry]);
 
   const items = useMemo(() => plan?.items ?? [], [plan]);
-  const checkedOf = (identity: PlanTaskIdentity) => planItemFor(items, identity)?.checked;
-  registry.checkedOf = checkedOf;
+  registry.checkedOf = (identity) => checkedOfItems(planItemsFor(items, identity));
   registry.onToggle = async (identity, checked) => {
-    const item = planItemFor(items, identity);
-    if (!item) throw new Error('not in the plan');
+    const changing = planItemsFor(items, identity).filter((item) => item.checked !== checked);
     setFailure(null);
     try {
-      await setChecked(item.id, checked);
+      for (const item of changing) await setChecked(item.id, checked);
     } catch (err) {
       setFailure(clockText.planCheckFailed);
       throw err;
@@ -90,30 +107,45 @@ export function usePlanTaskEditor(
   const timers = (
     <>
       {slots.map((slot) => {
-        const item = slot.ticketId ? byTicket.get(slot.ticketId) : undefined;
-        if (!item) return null;
-        const running = isRunning(item.ticketId);
+        const lineItems = slot.ticketIds.flatMap((ticketId) => byTicket.get(ticketId) ?? []);
+        if (!lineItems.length) return null;
         return createPortal(
-          <TimerControl
-            isRunning={running}
-            runningSince={running && item.runningSince ? countsFrom(item, item.runningSince) : null}
-            isLoading={isBusy(item.ticketId)}
-            disabled={busy}
-            onClick={() => togglePlanTicket(item.ticketId, item.title)}
-            ariaLabel={
-              running
-                ? clockText.stopPlanTicketLabel(item.title)
-                : clockText.startPlanTicketLabel(item.title)
-            }
-            className="h-7 w-7"
-          />,
+          <span className="plan-task-timers inline-flex gap-1">
+            {lineItems.map((item) => {
+              const running = isRunning(item.ticketId);
+              return (
+                <TimerControl
+                  key={item.id}
+                  isRunning={running}
+                  runningSince={
+                    running && item.runningSince ? countsFrom(item, item.runningSince) : null
+                  }
+                  isLoading={isBusy(item.ticketId)}
+                  disabled={busy}
+                  onClick={() => togglePlanTicket(item.ticketId, item.title)}
+                  ariaLabel={
+                    running
+                      ? clockText.stopPlanTicketLabel(item.title)
+                      : clockText.startPlanTicketLabel(item.title)
+                  }
+                  className="h-7 w-7"
+                />
+              );
+            })}
+          </span>,
           slot.element,
-          item.id,
+          lineItems[0].id,
         );
       })}
       {addBackPrompt}
     </>
   );
+
+  /** A plan line's check, as `withChecks` asks for it when the text is saved. */
+  const checkedOf = (identity: { ticketId: string } | { text: string }) =>
+    checkedOfItems(
+      planItemsFor(items, 'ticketId' in identity ? { ticketIds: [identity.ticketId] } : identity),
+    );
 
   return { editorKits, timers, failure, checkedOf };
 }

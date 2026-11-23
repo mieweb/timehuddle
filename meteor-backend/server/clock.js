@@ -767,8 +767,14 @@ Meteor.publish('clock.liveForTeams', async function (teamIds) {
   const allowedIds = memberTeams.map((t) => t._id.toHexString());
   if (!allowedIds.length) return this.ready();
 
-  return ClockEvents.find({ teamId: { $in: allowedIds }, endTime: null });
+  return ClockEvents.find({ teamId: { $in: allowedIds }, endTime: null }, PLAN_HIDDEN);
 });
+
+/**
+ * A session's plan items are read through `clock.plan`, which checks the
+ * reader's access; a published event carries only `planRev`, to say it changed.
+ */
+const PLAN_HIDDEN = { fields: { planItems: 0 } };
 
 /**
  * Real-time clock events for a specific user's timesheet.
@@ -781,7 +787,7 @@ Meteor.publish('clock.liveForUser', async function (targetUserId) {
 
   // Allow viewing own timesheet, or if user is admin of any team the target is in
   if (this.userId === targetUserId) {
-    return ClockEvents.find({ userId: targetUserId });
+    return ClockEvents.find({ userId: targetUserId }, PLAN_HIDDEN);
   }
 
   // Check if current user is admin of any team that targetUser is in
@@ -798,7 +804,7 @@ Meteor.publish('clock.liveForUser', async function (targetUserId) {
   if (adminTeams.length === 0) return this.ready();
 
   // User is admin of at least one team that target user is in
-  return ClockEvents.find({ userId: targetUserId });
+  return ClockEvents.find({ userId: targetUserId }, PLAN_HIDDEN);
 });
 
 /**

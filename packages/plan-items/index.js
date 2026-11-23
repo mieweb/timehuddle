@@ -112,8 +112,9 @@ export function planTicketsAsChecklist(text, isTeamTicket = () => true) {
 }
 
 /**
- * `text` with each checklist line's box set as `checkedOf` says for its item
- * (its first linked ticket, else its words); lines it says nothing about stay.
+ * `text` with each checklist line's box set as `checkedOf` says for its items
+ * (its linked tickets, checked when all are; else its words); lines it says
+ * nothing about stay.
  * @param {string} text
  * @param {(item: { ticketId: string } | { text: string }) => boolean | undefined} checkedOf
  */
@@ -123,8 +124,13 @@ export function withChecks(text, checkedOf) {
     .map((line) => {
       const task = TASK_ITEM.exec(line);
       if (!task) return line;
-      const [ticketId] = ticketIdsInText(line);
-      const checked = checkedOf(ticketId ? { ticketId } : { text: task[2].trim() });
+      const ticketIds = ticketIdsInText(line);
+      const states = (
+        ticketIds.length
+          ? ticketIds.map((ticketId) => checkedOf({ ticketId }))
+          : [checkedOf({ text: task[2].trim() })]
+      ).filter((state) => state !== undefined);
+      const checked = states.length ? states.every(Boolean) : undefined;
       return checked === undefined ? line : line.replace(/\[[ xX]\]/, checked ? '[x]' : '[ ]');
     })
     .join('\n');

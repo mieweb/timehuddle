@@ -1756,16 +1756,11 @@ export interface ClockEvent {
   /** Ticket timers that ran during this shift. Only `clock.timesheet` returns these. */
   ticketSessions?: ShiftTicketSession[];
   /**
-   * Today's plan as stored, ids and checks only — null before one is set. Read
-   * it resolved through `clockApi.getPlan`; this is here to say it changed.
+   * Today's plan's revision — null before one is set. Read the plan through
+   * `clockApi.getPlan`; this is here to say it changed.
    */
-  planItems?: StoredPlanItem[] | null;
+  planRev?: number | null;
 }
-
-/** An item of today's plan as the session stores it (M4, #886). */
-export type StoredPlanItem =
-  | { id: string; ticketId: string; checked: boolean }
-  | { id: string; text: string; checked: boolean };
 
 /** An item of today's plan as shown: a ticket with its name and time this session, or a line of text. */
 export type SessionPlanItem =
