@@ -393,9 +393,10 @@ post is not edited to show progress.
       [#797](https://github.com/mieweb/timehuddle/issues/797) — progress no
       longer edits it; showing the edit's time and author waits on #797
 - [x] Live timer `Badge` on the running ticket's row and under the Clock page's
-      timer. On My Board, a ticket's page and today's plan, the running ticket
-      shows its time under its timer button (`TimerControl`); in Huddle, the
-      time is in the update that started it, and the plan post has buttons only
+      timer. On a ticket's page and in today's plan, the running ticket shows
+      its time under its timer button (`TimerControl`); My Board shows it as the
+      badge beside the title; in Huddle, the time is in the update that started
+      it, and the plan post has buttons only
 - [x] Starting a ticket from the plan post that was taken out of today's plan
       asks first whether to add it back
 - [ ] Follow-up: `ActionPlan` has no slot in front of a step or for
