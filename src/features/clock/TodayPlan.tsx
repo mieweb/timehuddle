@@ -41,9 +41,11 @@ import {
   planChecklist,
   planItemWords,
   planMarkdown,
+  ticketIdsInText,
   ticketPath,
   type PlanItemText,
 } from '../huddle/planItems';
+import { fetchTeamRefs } from '../huddle/postRefs';
 import { clockText } from './clockStrings';
 import { usePlanTicketStart } from './usePlanTicketStart';
 import type { SessionPlanState } from './useSessionPlan';
@@ -74,22 +76,15 @@ function useStepRows(plan: React.RefObject<HTMLElement | null>) {
 
 export interface TodayPlanProps {
   sessionPlan: SessionPlanState;
-  /** The session's plan post text, which the plan starts from; null when it has none. */
-  postedText: string | null;
   /** `@` teammates and `#` tickets in the editor, as in the clock-in composer. */
   triggers: ReferenceTrigger[];
   /** The ticket whose timer is running, if any. */
   runningTicket: RunningTicket | null;
 }
 
-export const TodayPlan: React.FC<TodayPlanProps> = ({
-  sessionPlan,
-  postedText,
-  triggers,
-  runningTicket,
-}) => {
+export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, triggers, runningTicket }) => {
   const { navigate } = useRouter();
-  const { plan, loading, error, refetch, setItems, setChecked } = sessionPlan;
+  const { teamId, plan, loading, error, refetch, setItems, setChecked } = sessionPlan;
   const { togglePlanTicket, isRunning, isBusy, busy } = usePlanTicketStart(
     runningTicket,
     sessionPlan,
@@ -101,18 +96,6 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [editor, setEditor] = useState<RichEditorHandle | null>(null);
-
-  // A session that has a plan post but no plan yet (just clocked in, or from
-  // before plans were kept) starts from the post's items, once.
-  const startedFromRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!plan || plan.initialized || postedText === null) return;
-    if (startedFromRef.current === plan.clockEventId) return;
-    startedFromRef.current = plan.clockEventId;
-    setItems(planChecklist(postedText), { initial: true }).catch(() => {
-      startedFromRef.current = null;
-    });
-  }, [plan, postedText, setItems]);
 
   useEffect(() => {
     editor?.focus();
@@ -164,7 +147,12 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({
     try {
       // The editor's own content: `draft` can lag the last keystroke.
       const text = editor ? await editor.getContent().catch(() => draft) : draft;
-      await setItems(planChecklist(text));
+      // Only the team's tickets become ticket items: a checklist line linking
+      // another team's ticket stays a line, as the link stays text in the post.
+      const refs = teamId
+        ? await fetchTeamRefs(teamId, { members: false, tickets: ticketIdsInText(text).length > 0 })
+        : null;
+      await setItems(planChecklist(text, (id) => refs?.ticketIds.has(id) ?? false));
       setEditing(false);
     } catch {
       setFailure(clockText.planSaveFailed);

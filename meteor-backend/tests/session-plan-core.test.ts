@@ -57,9 +57,10 @@ describe('mergePlan', () => {
     expect(added).toEqual([items[0]]);
   });
 
-  it('drops a deleted item, and takes the check an edit gives', () => {
-    const { items } = mergePlan(previous, [{ text: 'Call Ann', checked: true }], ids());
+  it('drops a deleted item, and takes the check an edit gives, as toggled', () => {
+    const { items, toggled } = mergePlan(previous, [{ text: 'Call Ann', checked: true }], ids());
     expect(items).toEqual([{ id: 'b', text: 'Call Ann', checked: true }]);
+    expect(toggled).toEqual(items);
   });
 
   it('starts every item unchecked with no plan before it', () => {

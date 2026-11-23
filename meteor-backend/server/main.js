@@ -1689,7 +1689,7 @@ Meteor.startup(async () => {
 
   Wormhole.expose('clock.setPlan', {
     description:
-      "Set today's plan on the caller's open session from its items in order; each new item is announced in Huddle unless `initial`",
+      "Set today's plan on the caller's open session from its items in order; each new item, and each check the edit changes, is announced in Huddle",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1704,10 +1704,6 @@ Meteor.startup(async () => {
               checked: { type: 'boolean' },
             },
           },
-        },
-        initial: {
-          type: 'boolean',
-          description: 'The plan the session opened with: not announced, and never replaces one already set',
         },
       },
       required: ['teamId', 'items'],

@@ -1905,15 +1905,13 @@ export const clockApi = {
   getPlan: (teamId: string) => wormholeCall<SessionPlan | null>('clock.plan', { teamId }),
 
   /**
-   * Set today's plan from its items in order. New items are announced in
-   * Huddle, unless `initial`: the plan the session opened with, which never
-   * replaces one already set.
+   * Set today's plan from its items in order. New items, and checks the edit
+   * changes, are announced in Huddle.
    */
   setPlan: (
     teamId: string,
     items: Array<{ ticketId: string } | { text: string; checked?: boolean }>,
-    initial = false,
-  ) => wormholeCall<SessionPlan>('clock.setPlan', { teamId, items, initial }),
+  ) => wormholeCall<SessionPlan>('clock.setPlan', { teamId, items }),
 
   /** Check an item of today's plan off by hand, or uncheck it; announced in Huddle. */
   checkPlanItem: (teamId: string, itemId: string, checked: boolean) =>

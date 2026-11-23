@@ -32,6 +32,9 @@ export const RunningTime: React.FC<{ since: number; className?: string }> = ({
   const now = useNow();
   return (
     <span
+      // Off even inside a live region (Huddle's message log is one), so the
+      // ticking time is never read out every second.
+      aria-live="off"
       className={`timer-control-time font-mono text-[10px] leading-none tabular-nums ${className}`}
     >
       {formatTimer((now - since) / 1000)}

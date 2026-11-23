@@ -5,13 +5,16 @@
  * the same state.
  *
  * It re-reads when the session's stored plan changes (live over DDP), when a
- * timer starts or stops anywhere in the app (touch and go moves checks on the
- * server), and when another view changes the plan. Every change made here is
+ * timer starts or stops — in this app or on another device (touch and go
+ * moves checks on the server, and the running ticket's time moves with it) —
+ * and when another view changes the plan. The server starts a session's plan
+ * from its plan post the first time it's read. Every change made here is
  * announced in Huddle by the server, so the feed is asked to re-read too.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { clockApi, type SessionPlan } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import { requestHuddleRefresh } from '../../lib/huddleRefresh';
 import { useTeam } from '../../lib/TeamContext';
 import type { PlanItemInput } from '../huddle/planItems';
@@ -20,13 +23,15 @@ const PLAN_CHANGED = 'plan:changed';
 const REFETCH_EVENTS = ['tickets:refetch', 'work:refetch'] as const;
 
 export interface SessionPlanState {
+  /** The team of the session the plan is for; null while clocked out. */
+  teamId: string | null;
   /** Null while clocked out, or before the first read. */
   plan: SessionPlan | null;
   loading: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
-  /** Replace the plan's items (an edit); `initial` for the plan the session opened with. */
-  setItems: (items: PlanItemInput[], options?: { initial?: boolean }) => Promise<void>;
+  /** Replace the plan's items (an edit). */
+  setItems: (items: PlanItemInput[]) => Promise<void>;
   /** Check an item off by hand, or uncheck it. */
   setChecked: (itemId: string, checked: boolean) => Promise<void>;
 }
@@ -70,6 +75,19 @@ export function useSessionPlan(): SessionPlanState {
     void refetch();
   }, [refetch, eventId, storedKey]);
 
+  // A timer started or stopped anywhere, this device or another: the server
+  // has moved checks and times, which the stored plan alone may not show.
+  useEffect(() => {
+    if (!teamId) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('timers', () => void refetch());
+    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [teamId, refetch]);
+
   useEffect(() => {
     const onRefetch = () => void refetch();
     const onPlanChanged = (event: Event) => {
@@ -97,9 +115,9 @@ export function useSessionPlan(): SessionPlanState {
   );
 
   const setItems = useCallback(
-    async (items: PlanItemInput[], { initial = false } = {}) => {
+    async (items: PlanItemInput[]) => {
       if (!teamId) return;
-      applyChange(await clockApi.setPlan(teamId, items, initial));
+      applyChange(await clockApi.setPlan(teamId, items));
     },
     [teamId, applyChange],
   );
@@ -112,5 +130,5 @@ export function useSessionPlan(): SessionPlanState {
     [teamId, applyChange],
   );
 
-  return { plan, loading, error, refetch, setItems, setChecked };
+  return { teamId, plan, loading, error, refetch, setItems, setChecked };
 }

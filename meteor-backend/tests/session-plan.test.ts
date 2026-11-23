@@ -33,7 +33,9 @@ let teamId: string;
 let alpha: string;
 let bravo: string;
 let planPostId: string;
-const PLAN_TEXT = 'Today: alpha then bravo';
+/** The plan post: Alpha and Bravo as tickets, Lunch as a checklist line. */
+const planText = () =>
+  `Today:\n\n[TH-1: Alpha](/app/tickets/${alpha})\n\n[TH-2: Bravo](/app/tickets/${bravo})\n\n- [ ] Lunch`;
 
 async function insertTicket(title: string, number: number): Promise<string> {
   const db = await getDb();
@@ -100,7 +102,7 @@ beforeEach(async () => {
     _id: new ObjectId(),
     teamId,
     userId,
-    content: { text: PLAN_TEXT, mentions: [] },
+    content: { text: planText(), mentions: [] },
     attachments: [],
     likes: [],
     commentCount: 0,
@@ -110,12 +112,6 @@ beforeEach(async () => {
   await db.collection('huddlePosts').insertOne(post);
   planPostId = post._id.toHexString();
   expect((await wormhole('clock.start', { teamId, planPostId }, jwt)).ok).toBe(true);
-  const set = await wormhole<Plan>(
-    'clock.setPlan',
-    { teamId, items: [{ ticketId: alpha }, { ticketId: bravo }, { text: 'Lunch' }], initial: true },
-    jwt,
-  );
-  expect(set.ok).toBe(true);
 });
 
 afterEach(async () => {
@@ -137,7 +133,7 @@ afterAll(async () => {
 });
 
 describe("today's plan on the session", () => {
-  it('opens with the plan unannounced, names its tickets, and is not set twice', async () => {
+  it('starts from the plan post, unannounced, and names its tickets', async () => {
     const current = await plan();
     expect(current.initialized).toBe(true);
     expect(current.items.map((item) => item.title ?? item.text)).toEqual([
@@ -145,13 +141,13 @@ describe("today's plan on the session", () => {
       'TH-2: Bravo',
       'Lunch',
     ]);
-    const again = await wormhole<Plan>(
-      'clock.setPlan',
-      { teamId, items: [{ text: 'Other' }], initial: true },
-      jwt,
-    );
-    expect(again.result.items).toHaveLength(3);
     expect(await updates()).toEqual([]);
+  });
+
+  it('starts from the plan post when a timer gets there before any page does', async () => {
+    await start(alpha);
+    await start(bravo);
+    expect(await checks()).toMatchObject({ [alpha]: true, [bravo]: false });
   });
 
   it('TH-1 → TH-2 → TH-1 leaves TH-1 unchecked and TH-2 checked off, each a new post', async () => {
@@ -174,7 +170,7 @@ describe("today's plan on the session", () => {
     // The plan post is the agreed record: never edited to show progress.
     const db = await getDb();
     const planPost = await db.collection('huddlePosts').findOne({ _id: new ObjectId(planPostId) });
-    expect(planPost!.content.text).toBe(PLAN_TEXT);
+    expect(planPost!.content.text).toBe(planText());
     expect(planPost!.updatedAt.getTime()).toBe(planPost!.createdAt.getTime());
   });
 
@@ -217,9 +213,55 @@ describe("today's plan on the session", () => {
     expect(await updates()).toEqual(['*Checked off “Lunch”*', '*Unchecked “Lunch”*']);
   });
 
+  it('keeps both of two checks made at once, and announces both', async () => {
+    const { items } = await plan();
+    await Promise.all(
+      items.map((item) =>
+        wormhole('clock.checkPlanItem', { teamId, itemId: item.id, checked: true }, jwt),
+      ),
+    );
+    expect(Object.values(await checks())).toEqual([true, true, true]);
+    expect(await updates()).toHaveLength(3);
+  });
+
+  it('announces a check an edit changes', async () => {
+    await wormhole(
+      'clock.setPlan',
+      {
+        teamId,
+        items: [{ ticketId: alpha }, { ticketId: bravo }, { text: 'Lunch', checked: true }],
+      },
+      jwt,
+    );
+    expect(await updates()).toEqual(['*Checked off “Lunch”*']);
+  });
+
+  it('refuses someone no longer on the team, though their session is open', async () => {
+    const db = await getDb();
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(teamId) }, { $pull: { members: userId, admins: userId } });
+    try {
+      const read = await wormhole('clock.plan', { teamId }, jwt);
+      const check = await wormhole(
+        'clock.checkPlanItem',
+        { teamId, itemId: 'x', checked: true },
+        jwt,
+      );
+      expect(read.ok).toBe(false);
+      expect(check.ok).toBe(false);
+      expect(await updates()).toEqual([]);
+    } finally {
+      await db
+        .collection('teams')
+        .updateOne({ _id: new ObjectId(teamId) }, { $set: { members: [userId], admins: [userId] } });
+    }
+  });
+
   it('announces the first plan of a session that had no plan post', async () => {
     const db = await getDb();
-    await db.collection('clockevents').updateMany({ userId }, { $unset: { planItems: '' } });
+    await db.collection('huddlePosts').deleteOne({ _id: new ObjectId(planPostId) });
+    await db.collection('clockevents').updateMany({ userId }, { $unset: { planItems: '', planRev: '' } });
     await wormhole('clock.setPlan', { teamId, items: [{ ticketId: bravo }] }, jwt);
     expect(await updates()).toEqual([
       `*Added [TH-2: Bravo](/app/tickets/${bravo}) to today's plan*`,

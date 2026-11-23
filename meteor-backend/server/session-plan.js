@@ -7,31 +7,111 @@
  *
  * Ticket timers keep it current through `planTouchAndGo`: starting a ticket
  * unchecks its item, and the ticket switched away from is checked off.
+ *
+ * A session's plan starts from its plan post the first time it's needed
+ * (`ensurePlan`), whichever page or timer gets there first. Every write is
+ * checked against the plan's revision and retried (`commitPlan`), so changes
+ * made at once — two checks, a check and a switch — all land, and only what
+ * was saved is announced.
  */
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { requireIdentity } from './auth-bridge';
 import { isValidId, rawDb } from './collections';
+import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
+import { requireTeamMembership } from './permissions';
 import { normalizeSource } from './ticket-refs';
 import { mergePlan, planInput, touchAndGo, withChecked } from './session-plan-core';
 import { PlanUpdate, planUpdateText } from './timer-updates-core';
 import { insertUpdatePost, teamTicketLabels } from './timer-updates';
 import { ticketName } from './ticket-label';
+import { planChecklist } from '@timehuddle/plan-items';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const clockEvents = () => rawDb().collection('clockevents');
 const newItemId = () => new ObjectId().toHexString();
 
-/** The caller's open session on a team, or a hard stop. */
+/** Attempts at a revision-checked write before giving up on a busy plan. */
+const COMMIT_ATTEMPTS = 5;
+
+/**
+ * The caller's open session on a team, or a hard stop. Owning an open session
+ * isn't enough: someone removed from the team keeps theirs open, and must not
+ * read its tickets or post to its Huddle.
+ */
 async function openSession(userId, teamId) {
   if (typeof teamId !== 'string' || !teamId) {
     throw new Meteor.Error('bad-request', 'teamId is required');
   }
+  await requireTeamMembership(userId, teamId);
   const event = await clockEvents().findOne({ userId, teamId, endTime: null });
   if (!event) throw new Meteor.Error('no-active-shift', 'Clock in to plan your day');
-  return event;
+  return ensurePlan(event);
 }
+
+/**
+ * Apply `change` to the plan as stored, and save the result only if no one
+ * else saved in between; otherwise read again and redo it. `change` returns
+ * `{ items, changed }` (and anything else the caller needs back), and is
+ * called with the latest items each time.
+ * @returns {Promise<{ event: object, result: object }>} the event as saved and
+ *   `change`'s result; nothing saved when `result.changed` is false
+ */
+async function commitPlan(event, change) {
+  let current = event;
+  for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+    const result = change(current.planItems ?? []);
+    if (!result.changed) return { event: current, result };
+    const rev = current.planRev ?? null;
+    const saved = await clockEvents().updateOne(
+      // `planRev: null` also matches a plan that has never been written.
+      { _id: current._id, planRev: rev },
+      { $set: { planItems: result.items, planRev: (rev ?? 0) + 1 } },
+    );
+    if (saved.modifiedCount) {
+      return { event: { ...current, planItems: result.items, planRev: (rev ?? 0) + 1 }, result };
+    }
+    current = await clockEvents().findOne({ _id: current._id });
+    if (!current) break;
+  }
+  throw new Meteor.Error('plan-busy', 'Your plan changed meanwhile. Please try again.');
+}
+
+/**
+ * A session's plan, started from its plan post the first time it's needed:
+ * the post's items, all unchecked, with the team's tickets as tickets (a link
+ * to another team's stays text). A session with no plan post stays without a
+ * plan until one is set.
+ */
+async function ensurePlan(event) {
+  if (Array.isArray(event.planItems)) return event;
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOne(
+      {
+        teamId: String(event.teamId),
+        userId: event.userId,
+        clockEventId: event._id.toHexString(),
+        status: { $ne: 'draft' },
+        ...SESSION_POST_FILTER,
+      },
+      { sort: SESSION_POST_SORT, projection: { 'content.text': 1 } },
+    );
+  const text = post?.content?.text;
+  if (typeof text !== 'string') return event;
+  const ours = await teamTickets(event.teamId, planChecklist(text).flatMap(ticketIdOf));
+  const input = planInput(planChecklist(text, (id) => ours.has(id))) ?? [];
+  const { items } = mergePlan([], input, newItemId);
+  // Only if no one else started it meanwhile; either way, read what's there.
+  await clockEvents().updateOne(
+    { _id: event._id, planItems: { $exists: false } },
+    { $set: { planItems: items, planRev: 1 } },
+  );
+  return (await clockEvents().findOne({ _id: event._id })) ?? event;
+}
+
+const ticketIdOf = (item) => (item.ticketId ? [item.ticketId] : []);
 
 /**
  * Each ticket's time in a session: its closed stints' seconds, and when the
@@ -118,10 +198,6 @@ async function publicPlan(event) {
   };
 }
 
-async function savePlan(event, items) {
-  await clockEvents().updateOne({ _id: event._id }, { $set: { planItems: items } });
-}
-
 /** Post one plan update per item, in order, a millisecond apart so they read that way. */
 async function postPlanUpdates(event, kind, items) {
   if (!items.length) return;
@@ -160,20 +236,23 @@ async function postPlanUpdates(event, kind, items) {
 export async function planTouchAndGo(userId, previous, session, { discardPrevious = false } = {}) {
   try {
     if (!isValidId(session?.clockEventId)) return null;
-    const event = await clockEvents().findOne({
+    const open = await clockEvents().findOne({
       _id: new ObjectId(session.clockEventId),
       userId,
       endTime: null,
     });
-    if (!Array.isArray(event?.planItems) || !event.planItems.length) return null;
+    if (!open) return null;
+    const event = await ensurePlan(open);
+    if (!Array.isArray(event.planItems) || !event.planItems.length) return null;
     const [fromTicketId, toTicketId] = await Promise.all([
       previous && !discardPrevious ? huddleTicketOf(previous.workItemId) : null,
       huddleTicketOf(session.workItemId),
     ]);
-    const { items, checkedOff, changed } = touchAndGo(event.planItems, { fromTicketId, toTicketId });
-    if (!changed) return null;
-    await savePlan(event, items);
-    if (!checkedOff) return null;
+    const { result } = await commitPlan(event, (items) =>
+      touchAndGo(items, { fromTicketId, toTicketId }),
+    );
+    const { checkedOff } = result;
+    if (!result.changed || !checkedOff) return null;
     const times = await ticketTimes(userId, session.clockEventId);
     return { ticketId: checkedOff.ticketId, seconds: totalSeconds(times.get(checkedOff.ticketId)) };
   } catch (err) {
@@ -187,39 +266,42 @@ async function teamTickets(teamId, ticketIds) {
   return new Set((await teamTicketLabels(teamId, ticketIds)).keys());
 }
 
+/** One update per item whose check an edit changed, checked ones first. */
+async function postToggles(event, toggled) {
+  await postPlanUpdates(event, PlanUpdate.CHECKED, toggled.filter((item) => item.checked));
+  await postPlanUpdates(event, PlanUpdate.UNCHECKED, toggled.filter((item) => !item.checked));
+}
+
 Meteor.methods({
   /** Today's plan on the caller's open session in a team, or null when clocked out there. */
   async 'clock.plan'({ teamId } = {}) {
     const { userId } = await requireIdentity(this);
     if (typeof teamId !== 'string' || !teamId) return null;
+    await requireTeamMembership(userId, teamId);
     const event = await clockEvents().findOne({ userId, teamId, endTime: null });
-    return event ? publicPlan(event) : null;
+    return event ? publicPlan(await ensurePlan(event)) : null;
   },
 
   /**
    * Set today's plan from its items in order (`{ ticketId }` or `{ text,
-   * checked? }`). Items already in it keep whether they're checked off. Each
-   * new item is announced ("Added TH-307 to today's plan") — a session with
-   * no plan post included — except when `initial`: the plan the session
-   * opened with was announced by its post, and an initial plan never
-   * replaces one already set.
+   * checked? }`). Items already in it keep whether they're checked off unless
+   * the edit says otherwise. Each new item is announced ("Added TH-307 to
+   * today's plan"), and so is each check the edit changed.
    */
-  async 'clock.setPlan'({ teamId, items, initial = false } = {}) {
+  async 'clock.setPlan'({ teamId, items } = {}) {
     const { userId } = await requireIdentity(this);
     const event = await openSession(userId, teamId);
     const input = planInput(items);
     if (!input) throw new Meteor.Error('bad-request', 'Not a plan');
-    const hadPlan = Array.isArray(event.planItems);
-    if (initial && hadPlan) return publicPlan(event);
-    const ours = await teamTickets(
-      teamId,
-      input.flatMap((item) => (item.ticketId ? [item.ticketId] : [])),
-    );
+    const ours = await teamTickets(teamId, input.flatMap(ticketIdOf));
     const kept = input.filter((item) => !item.ticketId || ours.has(item.ticketId));
-    const { items: next, added } = mergePlan(event.planItems, kept, newItemId);
-    await savePlan(event, next);
-    if (!initial) await postPlanUpdates(event, PlanUpdate.ADDED, added);
-    return publicPlan({ ...event, planItems: next });
+    const saved = await commitPlan(event, (current) => ({
+      ...mergePlan(current, kept, newItemId),
+      changed: true,
+    }));
+    await postPlanUpdates(saved.event, PlanUpdate.ADDED, saved.result.added);
+    await postToggles(saved.event, saved.result.toggled);
+    return publicPlan(saved.event);
   },
 
   /** Check an item off by hand, or uncheck it; either is announced. */
@@ -229,11 +311,11 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'itemId and checked are required');
     }
     const event = await openSession(userId, teamId);
-    const { items, changed } = withChecked(event.planItems ?? [], itemId, checked);
+    const saved = await commitPlan(event, (items) => withChecked(items, itemId, checked));
+    const { changed } = saved.result;
     if (changed) {
-      await savePlan(event, items);
-      await postPlanUpdates(event, checked ? PlanUpdate.CHECKED : PlanUpdate.UNCHECKED, [changed]);
+      await postPlanUpdates(saved.event, checked ? PlanUpdate.CHECKED : PlanUpdate.UNCHECKED, [changed]);
     }
-    return publicPlan({ ...event, planItems: items });
+    return publicPlan(saved.event);
   },
 });

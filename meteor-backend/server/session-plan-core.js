@@ -51,7 +51,8 @@ export function planInput(input) {
 /**
  * The plan after an edit: `incoming` in its order. An item already in the plan
  * keeps its id and, unless the edit says otherwise, whether it was checked
- * off; the rest are new, and returned as `added` too.
+ * off; the rest are new, and returned as `added` too. `toggled` are the items
+ * already in the plan whose check the edit changed.
  * @param {Array<{ id: string, ticketId?: string, text?: string, checked: boolean }>} previous
  * @param {ReturnType<typeof planInput>} incoming
  * @param {() => string} newId
@@ -63,7 +64,14 @@ export function mergePlan(previous, incoming, newId) {
     const what = next.ticketId ? { ticketId: next.ticketId } : { text: next.text };
     return { id: kept?.id ?? newId(), ...what, checked: next.checked ?? kept?.checked ?? false };
   });
-  return { items, added: items.filter((item) => !before.has(keyOf(item))) };
+  return {
+    items,
+    added: items.filter((item) => !before.has(keyOf(item))),
+    toggled: items.filter((item) => {
+      const kept = before.get(keyOf(item));
+      return kept !== undefined && kept.checked !== item.checked;
+    }),
+  };
 }
 
 /**

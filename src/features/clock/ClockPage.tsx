@@ -471,11 +471,6 @@ export const ClockPage: React.FC = () => {
         '')
       : '';
 
-  // The session's plan post, which today's plan starts from (TodayPlan). Only
-  // a plan-required team's session has one.
-  const sessionPlanText =
-    sessionPost?.content.text ?? sessionPostFetch?.content.text ?? postedPlan?.content.text ?? null;
-
   // Remember what the editor was actually mounted with, for the wrap-up guard.
   // Snapshot `text` (what the editor is given) at each (re)mount — not
   // `seedText`, which differs once the user has typed before the plan arrives.
@@ -1013,12 +1008,7 @@ export const ClockPage: React.FC = () => {
 
         {/* ── Today's plan: its live state, apart from the posted plan (M4) ── */}
         {isClockedIn && (
-          <TodayPlan
-            sessionPlan={sessionPlan}
-            postedText={sessionPlanText}
-            triggers={triggers}
-            runningTicket={runningTicket}
-          />
+          <TodayPlan sessionPlan={sessionPlan} triggers={triggers} runningTicket={runningTicket} />
         )}
 
         {/* ── Composer-first: a big prompt, then one card holding the plan/
