@@ -228,11 +228,23 @@ test.describe('Huddle composer — individual actions', () => {
     for (const title of titles) await expect(ticketLink(title)).toBeVisible();
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
-    await ticketLink(titles[0]).click();
-    await page.keyboard.press('Home');
-    await page.keyboard.press('Shift+End');
-    await page.keyboard.press('Backspace');
-    await expect(ticketLink(titles[0])).toHaveCount(0);
+    // A ticket is a chip alone on its line, and a chip takes no caret: click
+    // the line's end and Backspace removes it whole. The wrap-up editor can
+    // miss a caret placed the instant it appears, so the gesture is retried
+    // until the chip is gone.
+    const chipLine = composerEditor(page)
+      .locator('p')
+      .filter({ has: page.getByRole('link').filter({ hasText: titles[0] }) });
+    await expect(async () => {
+      if ((await ticketLink(titles[0]).count()) > 0) {
+        const box = (await chipLine.boundingBox())!;
+        await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Backspace');
+      }
+      await expect(ticketLink(titles[0])).toHaveCount(0, { timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+    await expect(ticketLink(titles[1])).toBeVisible();
     await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
     await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
       timeout: 30000,
