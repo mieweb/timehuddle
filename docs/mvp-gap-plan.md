@@ -375,8 +375,9 @@ post is not edited to show progress.
       `meteor-backend/server/session-plan.js`)
 - [x] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
       "x of y done", ticket links via `getHref`), edited with the same editor as
-      M3 (`src/features/clock/TodayPlan.tsx`). The plan starts from the
-      session's plan post, once
+      M3 (`src/features/clock/TodayPlan.tsx`). The server starts the plan from
+      the session's plan post the first time a page or timer needs it
+      (`@timehuddle/plan-items`)
 - [ ] The Pinned section reflects the same state — waits on M2
       ([#884](https://github.com/mieweb/timehuddle/issues/884)); My Board's rows
       already read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
