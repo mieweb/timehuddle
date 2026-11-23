@@ -95,21 +95,18 @@ describe('planItems', () => {
 });
 
 describe("today's plan as items (#886)", () => {
-  it('writes items back as the text the plan editor opens on, which reads back the same', () => {
-    const items = [
-      { ticketId: 't1', title: 'TH-1: Alpha' },
+  it('writes the plan as one checklist, tickets included, which reads back the same', () => {
+    const text = planMarkdown([
+      { ticketId: 't1', title: 'TH-1: Alpha', checked: true },
       { text: 'Call Pam', checked: false },
-      { text: 'Lunch', checked: true },
-      { ticketId: 't2', title: 'TH-2: Bravo' },
-    ];
-    const text = planMarkdown(items);
+      { ticketId: 't2', title: 'TH-2: Bravo', checked: false },
+    ]);
     expect(text).toBe(
-      '[TH-1: Alpha](/app/tickets/t1)\n\n- [ ] Call Pam\n- [x] Lunch\n\n[TH-2: Bravo](/app/tickets/t2)',
+      '- [x] [TH-1: Alpha](/app/tickets/t1)\n- [ ] Call Pam\n- [ ] [TH-2: Bravo](/app/tickets/t2)',
     );
     expect(planChecklist(text)).toEqual([
       { ticketId: 't1' },
       { text: 'Call Pam', checked: false },
-      { text: 'Lunch', checked: true },
       { ticketId: 't2' },
     ]);
   });

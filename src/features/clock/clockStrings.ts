@@ -108,21 +108,8 @@ export const clockText = {
   // ── Today's plan (while clocked in, M4) ──
   todaysPlan: "Today's plan",
   planProgress: (done: number, total: number) => `${done} of ${total} done`,
-  planWorking: 'Working on it',
-  planTodo: 'To do',
-  planDone: 'Done',
-  planOverdue: 'Overdue',
-  editPlan: 'Edit plan',
   loadingTodaysPlan: "Loading today's plan",
-  noPlanItems: 'Nothing on the plan yet. Edit it to add tickets (#) or a checklist.',
   planLoadFailed: "Could not load today's plan",
-  retry: 'Try again',
-  /** Where an edit shows, and what doesn't change. */
-  planEditHint:
-    'Changes show here and on My Board, and each item you add is posted to Huddle. Your plan post stays as posted.',
-  planEditLabel: "Edit today's plan",
-  savePlan: 'Save plan',
-  cancel: 'Cancel',
   planSaveFailed: 'Could not save the plan. Please try again.',
   planCheckFailed: 'Could not update the plan. Please try again.',
   /** A plan ticket's timer button. */

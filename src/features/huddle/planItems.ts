@@ -128,26 +128,24 @@ export function editedTicketIds(
 /** Today's plan read out of its text (`@timehuddle/plan-items`, shared with the server). */
 export { planChecklist, type PlanItemInput };
 
-/** A plan item as the text has it, with the ticket's name for writing it back. */
-export type PlanItemText = { ticketId: string; title: string } | { text: string; checked: boolean };
+/** A plan item with what it needs to be written as a checklist line. */
+export type PlanItemText =
+  { ticketId: string; title: string; checked: boolean } | { text: string; checked: boolean };
 
 /**
- * The plan's items as text the plan editor opens on: a ticket on its own line
- * as its link, and checklist lines together as one list.
+ * Today's plan as the editor shows it while clocked in: one checklist, every
+ * item a line — a ticket as its link (`- [ ] [TH-7: …](/app/tickets/…)`),
+ * which reads back as the same ticket (`planChecklist`).
  */
 export function planMarkdown(items: readonly PlanItemText[]): string {
-  const blocks: string[] = [];
-  for (const item of items) {
-    if ('ticketId' in item) {
-      blocks.push(planTicketItem({ id: item.ticketId, name: item.title }));
-      continue;
-    }
-    const line = `- [${item.checked ? 'x' : ' '}] ${item.text}`;
-    const last = blocks.length - 1;
-    if (last >= 0 && blocks[last].startsWith('- [')) blocks[last] += `\n${line}`;
-    else blocks.push(line);
-  }
-  return blocks.join('\n\n');
+  return items
+    .map((item) => {
+      const box = `- [${item.checked ? 'x' : ' '}] `;
+      return 'ticketId' in item
+        ? box + planTicketItem({ id: item.ticketId, name: item.title })
+        : box + item.text;
+    })
+    .join('\n');
 }
 
 /** A checklist line's words as they read: a picked @mention's link shows as its name. */

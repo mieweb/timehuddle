@@ -1,52 +1,32 @@
 /**
  * TodayPlan — today's plan on the Clock page while clocked in (M4, #886).
  *
- * The plan's live state: each item, whether it's checked off ("x of y done"),
- * the ticket running now and each ticket's time this session. It reads the
- * session's plan (useSessionPlan), not the Huddle post: the post is what the
- * team read that morning and stays as posted. Checking an item by hand, or
- * adding one in the editor, posts a new update to Huddle instead.
+ * The plan stays in the same rich editor it was written in, read-only: every
+ * item is a checklist line, and a ticket's line has its ▶/⏸ in front of it
+ * with the running time under the button. There's no editing by hand once
+ * clocked in — a tick saves at once and is posted to Huddle, and the only
+ * other change mid-session is a pinned ticket joining the plan (M2).
  *
- * Its ticket buttons start that ticket's timer; touch and go then checks off
- * the ticket switched from. The plan is edited with the same editor as the
- * clock-in plan, as text: removing an item is deleting its line.
+ * It shows the session's plan (useSessionPlan), not the Huddle post: the post
+ * is what the team read that morning and stays as posted. Starting a ticket
+ * goes through useTicketStart; touch and go then checks off the one before.
  */
-import {
-  ActionPlan,
-  Button,
-  ButtonGroup,
-  Spinner,
-  Text,
-  type ActionPlanStep,
-  type ReferenceTrigger,
-} from '@mieweb/ui';
-import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, {
-  Suspense,
-  lazy,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Spinner, Text, type ReferenceTrigger } from '@mieweb/ui';
+import type { ModifyMenu } from '@mieweb/ui/kerebron';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { SessionPlanItem } from '../../lib/api';
-import { formatDuration } from '../../lib/timeUtils';
 import type { RunningTicket } from '../../lib/useRunningTicket';
-import { useRouter } from '../../ui/router';
 import { TimerControl } from '../../ui/TimerControl';
-import {
-  planChecklist,
-  planItemWords,
-  planMarkdown,
-  ticketIdsInText,
-  ticketPath,
-  type PlanItemText,
-} from '../huddle/planItems';
-import { fetchTeamRefs } from '../huddle/postRefs';
+import { planMarkdown } from '../huddle/planItems';
 import { clockText } from './clockStrings';
+import {
+  createPlanTaskKit,
+  createPlanTaskRegistry,
+  type PlanTaskIdentity,
+  type PlanTaskSlot,
+} from './planTaskKit';
 import { usePlanTicketStart } from './usePlanTicketStart';
 import type { SessionPlanState } from './useSessionPlan';
 
@@ -60,193 +40,115 @@ const isTicket = (item: SessionPlanItem): item is TicketItem => 'ticketId' in it
 /** When a running ticket's time this session counts from: its earlier stints included. */
 const countsFrom = (item: TicketItem, runningSince: number) => runningSince - item.seconds * 1000;
 
-/** The step rows ActionPlan rendered, in order, for each ticket's timer to go in front of. */
-function useStepRows(plan: React.RefObject<HTMLElement | null>) {
-  const [rows, setRows] = useState<HTMLElement[]>([]);
-  useLayoutEffect(() => {
-    const found = [
-      ...(plan.current?.querySelectorAll<HTMLElement>('[data-slot="action-plan-step"]') ?? []),
-    ];
-    setRows((prev) =>
-      prev.length === found.length && prev.every((row, i) => row === found[i]) ? prev : found,
-    );
-  });
-  return rows;
+/** Read-only: no formatting toolbar. */
+const NO_TOOLBAR: ModifyMenu = () => [];
+
+const noop = () => {};
+
+/** The plan item a checklist line stands for. */
+function itemFor(items: readonly SessionPlanItem[], identity: PlanTaskIdentity) {
+  return items.find((item) =>
+    'ticketId' in identity
+      ? isTicket(item) && item.ticketId === identity.ticketId
+      : !isTicket(item) && item.text.trim() === identity.text,
+  );
 }
 
 export interface TodayPlanProps {
   sessionPlan: SessionPlanState;
-  /** `@` teammates and `#` tickets in the editor, as in the clock-in composer. */
+  /** `#` tickets drawn as chips, as in the clock-in composer. */
   triggers: ReferenceTrigger[];
   /** The ticket whose timer is running, if any. */
   runningTicket: RunningTicket | null;
 }
 
 export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, triggers, runningTicket }) => {
-  const { navigate } = useRouter();
-  const { teamId, plan, loading, error, refetch, setItems, setChecked } = sessionPlan;
+  const { plan, loading, error, setChecked } = sessionPlan;
   const { togglePlanTicket, isRunning, isBusy, busy } = usePlanTicketStart(
     runningTicket,
     sessionPlan,
   );
-  const planRef = useRef<HTMLElement>(null);
-  const stepRows = useStepRows(planRef);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [editor, setEditor] = useState<RichEditorHandle | null>(null);
 
+  // One registry and kit for the editor's life: the editor reads its kits once.
+  const [registry] = useState(createPlanTaskRegistry);
+  const [editorKits] = useState(() => [createPlanTaskKit(registry)]);
+  const [slots, setSlots] = useState<PlanTaskSlot[]>([]);
   useEffect(() => {
-    editor?.focus();
-  }, [editor]);
+    const read = () => setSlots(registry.slots());
+    read();
+    return registry.subscribe(read);
+  }, [registry]);
 
   const items = useMemo(() => plan?.items ?? [], [plan]);
-  const steps = useMemo<ActionPlanStep[]>(
-    () =>
-      items.map((item) => {
-        if (!isTicket(item)) {
-          return {
-            id: item.id,
-            title: planItemWords(item.text),
-            status: item.checked ? 'done' : 'todo',
-          };
-        }
-        const running = !!item.runningSince;
-        return {
-          id: item.id,
-          title: item.title,
-          status: item.checked ? 'done' : running ? 'in_progress' : 'todo',
-          // A running ticket's time is under its timer button; a stopped one's
-          // logged time shows here once there's a minute of it.
-          note: !running && item.seconds >= 60 ? formatDuration(item.seconds) : undefined,
-        };
-      }),
-    [items],
-  );
-  const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-
-  const startEditing = () => {
-    setDraft(
-      planMarkdown(
-        items.map<PlanItemText>((item) =>
-          isTicket(item)
-            ? { ticketId: item.ticketId, title: item.title }
-            : { text: item.text, checked: item.checked },
-        ),
-      ),
-    );
-    setFailure(null);
-    setEditing(true);
-  };
-
-  const save = async () => {
-    if (saving) return;
-    setSaving(true);
+  // A tick saves at once; the plan the server keeps comes back as the editor's value.
+  registry.onToggle = async (identity, checked) => {
+    const item = itemFor(items, identity);
+    if (!item) throw new Error('not in the plan');
     setFailure(null);
     try {
-      // The editor's own content: `draft` can lag the last keystroke.
-      const text = editor ? await editor.getContent().catch(() => draft) : draft;
-      // Only the team's tickets become ticket items: a checklist line linking
-      // another team's ticket stays a line, as the link stays text in the post.
-      const refs = teamId
-        ? await fetchTeamRefs(teamId, { members: false, tickets: ticketIdsInText(text).length > 0 })
-        : null;
-      await setItems(planChecklist(text, (id) => refs?.ticketIds.has(id) ?? false));
-      setEditing(false);
-    } catch {
-      setFailure(clockText.planSaveFailed);
-    } finally {
-      setSaving(false);
+      await setChecked(item.id, checked);
+    } catch (err) {
+      setFailure(clockText.planCheckFailed);
+      throw err;
     }
   };
 
-  if (editing) {
-    return (
-      <section
-        className="today-plan-editor flex shrink-0 flex-col gap-3"
-        aria-label={clockText.planEditLabel}
-      >
+  registry.checkedOf = (identity) => itemFor(items, identity)?.checked;
+  useEffect(() => registry.refreshChecks(), [registry, items]);
+
+  const text = useMemo(
+    () =>
+      planMarkdown(
+        items.map((item) =>
+          isTicket(item)
+            ? { ticketId: item.ticketId, title: item.title, checked: item.checked }
+            : { text: item.text, checked: item.checked },
+        ),
+      ),
+    [items],
+  );
+  const byTicket = useMemo(
+    () => new Map(items.filter(isTicket).map((item) => [item.ticketId, item])),
+    [items],
+  );
+  const done = items.filter((item) => item.checked).length;
+
+  if (!plan) {
+    if (loading) return <Spinner size="sm" label={clockText.loadingTodaysPlan} />;
+    if (error) {
+      return (
+        <Text variant="destructive" size="sm" role="alert">
+          {clockText.planLoadFailed}
+        </Text>
+      );
+    }
+    return null;
+  }
+  // No plan this session (none posted): nothing to show until one is pinned (M2).
+  if (items.length === 0) return null;
+
+  return (
+    <section className="today-plan flex shrink-0 flex-col gap-2" aria-label={clockText.todaysPlan}>
+      <div className="today-plan-heading flex items-baseline justify-between gap-2">
         <Text as="h2" size="lg" weight="semibold">
           {clockText.todaysPlan}
         </Text>
         <Text variant="muted" size="sm">
-          {clockText.planEditHint}
+          {clockText.planProgress(done, items.length)}
         </Text>
-        <Suspense fallback={<Spinner size="sm" label={clockText.loadingTodaysPlan} />}>
-          <MarkdownEditor
-            ref={setEditor}
-            value={draft}
-            onChange={setDraft}
-            onSubmit={() => void save()}
-            triggers={triggers}
-          />
-        </Suspense>
-        <div role="alert" className="today-plan-error">
-          {failure && (
-            <Text variant="destructive" size="sm">
-              {failure}
-            </Text>
-          )}
-        </div>
-        <ButtonGroup>
-          <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
-            {clockText.cancel}
-          </Button>
-          <Button variant="primary" onClick={() => void save()} isLoading={saving}>
-            {clockText.savePlan}
-          </Button>
-        </ButtonGroup>
-      </section>
-    );
-  }
-
-  return (
-    <div className="today-plan flex shrink-0 flex-col gap-3">
-      <ActionPlan
-        ref={planRef}
-        items={steps}
-        title={clockText.todaysPlan}
-        headingLevel="h2"
-        loading={loading && !plan}
-        error={plan ? null : error}
-        onRetry={() => void refetch()}
-        arrange="manual"
-        onAdd={startEditing}
-        onStatusChange={async (id, status) => {
-          setFailure(null);
-          try {
-            await setChecked(id, status === 'done');
-          } catch (err) {
-            setFailure(clockText.planCheckFailed);
-            // The checkbox puts itself back when the change is refused.
-            throw err;
-          }
-        }}
-        getHref={(id) => {
-          const item = byId.get(id);
-          return item && isTicket(item) ? ticketPath(item.ticketId) : '';
-        }}
-        // A ticket opens in the app; a line of text opens the plan to edit it.
-        onOpen={(id) => {
-          const item = byId.get(id);
-          if (item && isTicket(item)) navigate(ticketPath(item.ticketId));
-          else startEditing();
-        }}
-        labels={{
-          title: clockText.todaysPlan,
-          progress: clockText.planProgress,
-          inProgress: clockText.planWorking,
-          todo: clockText.planTodo,
-          done: clockText.planDone,
-          overdue: clockText.planOverdue,
-          addStep: clockText.editPlan,
-          loading: clockText.loadingTodaysPlan,
-          empty: clockText.noPlanItems,
-          error: clockText.planLoadFailed,
-          retry: clockText.retry,
-        }}
-      />
+      </div>
+      <Suspense fallback={<Spinner size="sm" label={clockText.loadingTodaysPlan} />}>
+        <MarkdownEditor
+          className="today-plan-editor"
+          value={text}
+          onChange={noop}
+          triggers={triggers}
+          readOnly
+          editorKits={editorKits}
+          modifyMenu={NO_TOOLBAR}
+        />
+      </Suspense>
       <div role="alert" className="today-plan-error">
         {failure && (
           <Text variant="destructive" size="sm">
@@ -254,35 +156,29 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, triggers, run
           </Text>
         )}
       </div>
-      {/* Each ticket's timer, in front of it in its row (ActionPlan has no
-          slot there): the plan is the launching point for the day. */}
-      {steps.map((step, i) => {
-        const item = byId.get(step.id);
-        const row = stepRows[i];
-        if (!item || !isTicket(item) || !row) return null;
+      {/* Each ticket's timer, in its checklist line in front of the ticket. */}
+      {slots.map((slot) => {
+        const item = slot.ticketId ? byTicket.get(slot.ticketId) : undefined;
+        if (!item) return null;
         const running = isRunning(item.ticketId);
         return createPortal(
-          <span className="today-plan-timer order-first -my-1">
-            <TimerControl
-              isRunning={running}
-              runningSince={
-                running && item.runningSince ? countsFrom(item, item.runningSince) : null
-              }
-              isLoading={isBusy(item.ticketId)}
-              disabled={busy}
-              onClick={() => togglePlanTicket(item.ticketId, item.title)}
-              ariaLabel={
-                running
-                  ? clockText.stopPlanTicketLabel(item.title)
-                  : clockText.startPlanTicketLabel(item.title)
-              }
-              className="h-8 w-8"
-            />
-          </span>,
-          row,
-          step.id,
+          <TimerControl
+            isRunning={running}
+            runningSince={running && item.runningSince ? countsFrom(item, item.runningSince) : null}
+            isLoading={isBusy(item.ticketId)}
+            disabled={busy}
+            onClick={() => togglePlanTicket(item.ticketId, item.title)}
+            ariaLabel={
+              running
+                ? clockText.stopPlanTicketLabel(item.title)
+                : clockText.startPlanTicketLabel(item.title)
+            }
+            className="h-7 w-7"
+          />,
+          slot.element,
+          item.id,
         );
       })}
-    </div>
+    </section>
   );
 };

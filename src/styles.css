@@ -62,6 +62,11 @@ html[data-theme='dark'] {
   min-height: 13rem;
 }
 
+/* Today's plan while clocked in is read-only: as tall as its checklist. */
+.markdown-editor.today-plan-editor .kb-editor {
+  min-height: 0;
+}
+
 /* iOS WKWebView (Capacitor) can fail to invoke the software keyboard on a tap
    inside a contenteditable when `-webkit-user-select`/`-webkit-touch-callout`
    isn't explicitly set to an editable-friendly value — desktop/mobile Safari
