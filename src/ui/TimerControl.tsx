@@ -17,6 +17,11 @@ export interface TimerControlProps extends TimerToggleButtonProps {
   runningSince?: number | null;
   /** The time's colour where the default doesn't read, e.g. `text-current` on a chat bubble. */
   timeClassName?: string;
+  /**
+   * The time takes its own width instead of overflowing the button's evenly.
+   * For a spot with no column to keep aligned and an edge close by (a chat bubble).
+   */
+  timeTakesWidth?: boolean;
 }
 
 /** The running time alone, ticking every second. */
@@ -37,6 +42,7 @@ export const RunningTime: React.FC<{ since: number; className?: string }> = ({
 export const TimerControl: React.FC<TimerControlProps> = ({
   runningSince = null,
   timeClassName,
+  timeTakesWidth = false,
   ...button
 }) => (
   <span className="timer-control inline-flex shrink-0 flex-col items-center gap-0.5">
@@ -44,7 +50,7 @@ export const TimerControl: React.FC<TimerControlProps> = ({
     {button.isRunning && runningSince !== null && (
       // No width of its own: wider than the button, it overflows both sides
       // evenly, so the ticket beside it stays where it was.
-      <span className="flex w-0 justify-center whitespace-nowrap">
+      <span className={`flex justify-center whitespace-nowrap ${timeTakesWidth ? '' : 'w-0'}`}>
         <RunningTime since={runningSince} className={timeClassName} />
       </span>
     )}

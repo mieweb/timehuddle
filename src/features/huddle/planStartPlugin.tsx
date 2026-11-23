@@ -82,7 +82,8 @@ export function withPlanStart(plugin: SuperChatRenderPlugin): SuperChatRenderPlu
     if (!inPlan && !inUpdate) return link;
     const title = textOf(props.node as HastNode | undefined) || ticketId;
     return (
-      <span className="plan-ticket-start inline-flex items-start gap-1 align-middle">
+      // Bounded by the bubble, so a long ticket name truncates inside it.
+      <span className="plan-ticket-start inline-flex max-w-full items-start gap-1 align-middle">
         <TimerControl
           isRunning={running}
           runningSince={inUpdate ? (plan.running?.since ?? null) : null}
@@ -93,8 +94,9 @@ export function withPlanStart(plugin: SuperChatRenderPlugin): SuperChatRenderPlu
           className="h-6 w-6"
           // On the author's coloured bubble, the bubble's own text colour reads.
           timeClassName="text-current"
+          timeTakesWidth
         />
-        {link}
+        <span className="flex min-w-0">{link}</span>
       </span>
     );
   }
