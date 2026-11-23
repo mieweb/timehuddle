@@ -106,6 +106,7 @@ import { TEAMS_STRINGS } from '../features/teams/teamsStrings';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
+import { useHuddleRefreshRequests } from '@lib/huddleRefresh';
 import { toDateString } from '@lib/timeUtils';
 import styles from './Huddle.module.css';
 
@@ -536,6 +537,8 @@ export default function Huddle() {
     else await refreshFeed();
   }, [scope, refreshMyPosts, refreshFeed]);
   useRefresh(refreshActiveScope);
+  // A timer or today's plan posted from another page: read it now, not when DDP says.
+  useHuddleRefreshRequests(refreshActiveScope);
 
   // A post's `session.endTime` is a snapshot from when it was last fetched —
   // clocking out doesn't touch the huddlePosts document, so the change stream

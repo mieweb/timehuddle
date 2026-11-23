@@ -1755,6 +1755,39 @@ export interface ClockEvent {
   endTime: number | null;
   /** Ticket timers that ran during this shift. Only `clock.timesheet` returns these. */
   ticketSessions?: ShiftTicketSession[];
+  /**
+   * Today's plan as stored, ids and checks only — null before one is set. Read
+   * it resolved through `clockApi.getPlan`; this is here to say it changed.
+   */
+  planItems?: StoredPlanItem[] | null;
+}
+
+/** An item of today's plan as the session stores it (M4, #886). */
+export type StoredPlanItem =
+  | { id: string; ticketId: string; checked: boolean }
+  | { id: string; text: string; checked: boolean };
+
+/** An item of today's plan as shown: a ticket with its name and time this session, or a line of text. */
+export type SessionPlanItem =
+  | {
+      id: string;
+      ticketId: string;
+      /** `TH-12: Fix login` */
+      title: string;
+      checked: boolean;
+      /** Seconds of this ticket's closed stints this session; add the running one's from `runningSince`. */
+      seconds: number;
+      /** When its running stint started (epoch ms), or null when it isn't running. */
+      runningSince: number | null;
+    }
+  | { id: string; text: string; checked: boolean };
+
+/** Today's plan on the caller's open session (`clock.plan`). */
+export interface SessionPlan {
+  clockEventId: string;
+  /** False until the session has had a plan set. */
+  initialized: boolean;
+  items: SessionPlanItem[];
 }
 
 // ─── Timesheet change approvals ───────────────────────────────────────────────
@@ -1867,6 +1900,24 @@ export const clockApi = {
 
   /** Get the current user's active clock event (any team), or null. */
   getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
+
+  /** Today's plan on the caller's open session in a team, or null when clocked out there. */
+  getPlan: (teamId: string) => wormholeCall<SessionPlan | null>('clock.plan', { teamId }),
+
+  /**
+   * Set today's plan from its items in order. New items are announced in
+   * Huddle, unless `initial`: the plan the session opened with, which never
+   * replaces one already set.
+   */
+  setPlan: (
+    teamId: string,
+    items: Array<{ ticketId: string } | { text: string; checked?: boolean }>,
+    initial = false,
+  ) => wormholeCall<SessionPlan>('clock.setPlan', { teamId, items, initial }),
+
+  /** Check an item of today's plan off by hand, or uncheck it; announced in Huddle. */
+  checkPlanItem: (teamId: string, itemId: string, checked: boolean) =>
+    wormholeCall<SessionPlan>('clock.checkPlanItem', { teamId, itemId, checked }),
 
   /** The caller's latest completed sessions on a team, newest first. */
   getRecentSessions: (teamId: string, limit: number) =>

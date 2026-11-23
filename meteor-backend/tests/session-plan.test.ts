@@ -160,6 +160,8 @@ describe("today's plan on the session", () => {
     expect(await checks()).toMatchObject({ [alpha]: true, [bravo]: false });
     await start(alpha);
     expect(await checks()).toMatchObject({ [alpha]: false, [bravo]: true, Lunch: false });
+    const running = (await plan()).items.filter((item) => item.runningSince);
+    expect(running.map((item) => item.ticketId)).toEqual([alpha]);
 
     const posts = await updates();
     expect(posts).toHaveLength(3);

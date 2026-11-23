@@ -34,10 +34,10 @@ async function openSession(userId, teamId) {
 }
 
 /**
- * Seconds each ticket had in a session — closed stints plus the one running —
- * and when the running one started: `Map<ticketId, { seconds, runningSince }>`.
+ * Each ticket's time in a session: its closed stints' seconds, and when the
+ * one running started: `Map<ticketId, { closedSeconds, runningSince }>`.
  */
-async function ticketTimes(userId, clockEventId, now = Date.now()) {
+async function ticketTimes(userId, clockEventId) {
   const sessions = await rawDb().collection('timers').find({ userId, clockEventId }).toArray();
   const workItemIds = [...new Set(sessions.map((s) => s.workItemId))].filter(isValidId);
   if (!workItemIds.length) return new Map();
@@ -57,16 +57,19 @@ async function ticketTimes(userId, clockEventId, now = Date.now()) {
   for (const session of sessions) {
     const ticketId = ticketOf.get(session.workItemId);
     if (!ticketId) continue;
-    const time = times.get(ticketId) ?? { seconds: 0, runningSince: null };
-    if (session.endTime === null) {
-      time.seconds += Math.max(0, Math.floor((now - session.startTime) / 1000));
-      time.runningSince = session.startTime;
-    } else {
-      time.seconds += session.durationSeconds ?? 0;
-    }
+    const time = times.get(ticketId) ?? { closedSeconds: 0, runningSince: null };
+    if (session.endTime === null) time.runningSince = session.startTime;
+    else time.closedSeconds += session.durationSeconds ?? 0;
     times.set(ticketId, time);
   }
   return times;
+}
+
+/** A ticket's whole time in a session, the running stint up to `now` included. */
+function totalSeconds(time, now = Date.now()) {
+  if (!time) return 0;
+  const running = time.runningSince === null ? 0 : Math.floor((now - time.runningSince) / 1000);
+  return time.closedSeconds + Math.max(0, running);
 }
 
 /** A Huddle ticket's id from a work item, or null (a Redmine issue, a gone item). */
@@ -80,7 +83,9 @@ async function huddleTicketOf(workItemId) {
 
 /**
  * The plan as the client shows it: each item with what it's called now, and
- * for a ticket its time this session. A ticket since deleted is left out.
+ * for a ticket its closed stints' seconds this session and when its running
+ * one started, so the client can keep the time live. A ticket since deleted
+ * is left out.
  * `initialized` is false until the session has had a plan set.
  */
 async function publicPlan(event) {
@@ -101,7 +106,7 @@ async function publicPlan(event) {
         ticketId: item.ticketId,
         title: ticketName(label),
         checked: item.checked,
-        seconds: time?.seconds ?? 0,
+        seconds: time?.closedSeconds ?? 0,
         runningSince: time?.runningSince ?? null,
       },
     ];
@@ -131,7 +136,8 @@ async function postPlanUpdates(event, kind, items) {
   for (const [i, item] of items.entries()) {
     const label = item.ticketId ? labels.get(item.ticketId) : null;
     if (item.ticketId && !label) continue;
-    const seconds = item.ticketId && kind === PlanUpdate.CHECKED ? (times.get(item.ticketId)?.seconds ?? 0) : null;
+    const seconds =
+      item.ticketId && kind === PlanUpdate.CHECKED ? totalSeconds(times.get(item.ticketId)) : null;
     await insertUpdatePost({
       teamId: event.teamId,
       userId: event.userId,
@@ -169,7 +175,7 @@ export async function planTouchAndGo(userId, previous, session, { discardPreviou
     await savePlan(event, items);
     if (!checkedOff) return null;
     const times = await ticketTimes(userId, session.clockEventId);
-    return { ticketId: checkedOff.ticketId, seconds: times.get(checkedOff.ticketId)?.seconds ?? 0 };
+    return { ticketId: checkedOff.ticketId, seconds: totalSeconds(times.get(checkedOff.ticketId)) };
   } catch (err) {
     console.error('[session-plan] touch and go failed:', err);
     return null;

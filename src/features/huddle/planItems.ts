@@ -140,3 +140,66 @@ export function editedTicketIds(
   const kept = carried.filter((id) => !linkedBefore.has(id));
   return [...new Set([...kept, ...teamTicketIdsInText(newText, teamTicketIds)])];
 }
+
+// ─── Today's plan as items (M4, #886) ────────────────────────────────────────
+
+/** An item of today's plan as the text gives it: a ticket, or a checklist line. */
+export type PlanItemInput = { ticketId: string } | { text: string; checked: boolean };
+
+/** A plan item as the text has it, with the ticket's name for writing it back. */
+export type PlanItemText = { ticketId: string; title: string } | { text: string; checked: boolean };
+
+const FENCED_CODE = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
+const TASK_ITEM = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/;
+
+/**
+ * Today's plan's items, read out of its text in order: each ticket it links
+ * (once), and each checklist line (`- [ ] Call Pam`) that links none. Other
+ * prose is the plan's wording, not an item.
+ */
+export function planChecklist(text: string): PlanItemInput[] {
+  const items: PlanItemInput[] = [];
+  const seen = new Set<string>();
+  const add = (key: string, item: PlanItemInput) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  };
+  for (const line of text.replace(FENCED_CODE, '').split('\n')) {
+    const tickets = ticketIdsInText(line);
+    if (tickets.length > 0) {
+      for (const ticketId of tickets) add(`ticket:${ticketId}`, { ticketId });
+      continue;
+    }
+    const task = TASK_ITEM.exec(line);
+    const words = task?.[2].trim();
+    if (task && words) add(`text:${words}`, { text: words, checked: task[1] !== ' ' });
+  }
+  return items;
+}
+
+/**
+ * The plan's items as text the plan editor opens on: a ticket on its own line
+ * as its link, and checklist lines together as one list.
+ */
+export function planMarkdown(items: readonly PlanItemText[]): string {
+  const blocks: string[] = [];
+  for (const item of items) {
+    if ('ticketId' in item) {
+      blocks.push(planTicketItem({ id: item.ticketId, name: item.title }));
+      continue;
+    }
+    const line = `- [${item.checked ? 'x' : ' '}] ${item.text}`;
+    const last = blocks.length - 1;
+    if (last >= 0 && blocks[last].startsWith('- [')) blocks[last] += `\n${line}`;
+    else blocks.push(line);
+  }
+  return blocks.join('\n\n');
+}
+
+/** A checklist line's words as they read: a picked @mention's link shows as its name. */
+export function planItemWords(text: string): string {
+  return text.replace(/\[((?:\\.|[^\]\\])*)\]\([^)\s]*\)/g, (_, label: string) =>
+    label.replace(/\\(.)/g, '$1'),
+  );
+}

@@ -3,6 +3,9 @@ import {
   appendPlanItem,
   appendPlanTickets,
   editedTicketIds,
+  planChecklist,
+  planItemWords,
+  planMarkdown,
   planTicketItem,
   planTicketName,
   teamTicketIdsInText,
@@ -88,5 +91,54 @@ describe('planItems', () => {
   it("keeps only the team's tickets", () => {
     const text = `${item}\n- [ ] [Other](/app/tickets/elsewhere)`;
     expect(teamTicketIdsInText(text, new Set(['tkt-1']))).toEqual(['tkt-1']);
+  });
+});
+
+describe("today's plan as items (#886)", () => {
+  const plan = [
+    'Today I will:',
+    '',
+    '[TH-1: Alpha](/app/tickets/t1)',
+    '',
+    '- [ ] Call [@Pam](/app/profile/u1)',
+    '- [x] Lunch',
+    '- [ ] Review [TH-2: Bravo](/app/tickets/t2) with Ann',
+    '',
+    '```',
+    '- [ ] not an item [TH-9](/app/tickets/t9)',
+    '```',
+    '[TH-1: Alpha](/app/tickets/t1)',
+  ].join('\n');
+
+  it('reads each linked ticket once and each checklist line, in order; prose is no item', () => {
+    expect(planChecklist(plan)).toEqual([
+      { ticketId: 't1' },
+      { text: 'Call [@Pam](/app/profile/u1)', checked: false },
+      { text: 'Lunch', checked: true },
+      { ticketId: 't2' },
+    ]);
+  });
+
+  it('writes items back as the text the plan editor opens on, which reads back the same', () => {
+    const items = [
+      { ticketId: 't1', title: 'TH-1: Alpha' },
+      { text: 'Call Pam', checked: false },
+      { text: 'Lunch', checked: true },
+      { ticketId: 't2', title: 'TH-2: Bravo' },
+    ];
+    const text = planMarkdown(items);
+    expect(text).toBe(
+      '[TH-1: Alpha](/app/tickets/t1)\n\n- [ ] Call Pam\n- [x] Lunch\n\n[TH-2: Bravo](/app/tickets/t2)',
+    );
+    expect(planChecklist(text)).toEqual([
+      { ticketId: 't1' },
+      { text: 'Call Pam', checked: false },
+      { text: 'Lunch', checked: true },
+      { ticketId: 't2' },
+    ]);
+  });
+
+  it('shows a picked mention in a checklist line by its name', () => {
+    expect(planItemWords('Call [@Pam \\[PT\\]](/app/profile/u1) now')).toBe('Call @Pam [PT] now');
   });
 });
