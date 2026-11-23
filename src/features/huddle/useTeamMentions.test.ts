@@ -130,4 +130,10 @@ describe('group mentions', () => {
   it('reads a teammate’s profile link as that person, not the group', () => {
     expect(detectGroupMentions('[@Team Support](/app/profile/u9) and @here')).toEqual(['here']);
   });
+
+  it('reads no group in a linked ticket’s title', () => {
+    expect(detectGroupMentions('[TH-7: Fix @team alerts](/app/tickets/t7) and @here')).toEqual([
+      'here',
+    ]);
+  });
 });

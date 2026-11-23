@@ -39,6 +39,18 @@ describe('postRefs', () => {
     expect(postRefsIn(text, { members, ticketIds: new Set() }).mentions).toEqual(['u-annmarie']);
   });
 
+  it("doesn't read a linked ticket's title as a typed mention", () => {
+    const members = [
+      { id: 'u-ann', name: 'Ann Smith' },
+      { id: 'u-pam', name: 'Pam Beesly' },
+    ] as TeamMember[];
+    const text = '[TH-7: Ask @Ann about login](/app/tickets/t7) with @Pam';
+    expect(postRefsIn(text, { members, ticketIds: new Set(['t7']) })).toEqual({
+      mentions: ['u-pam'],
+      ticketIds: ['t7'],
+    });
+  });
+
   it("resolves mentions and the team's linked tickets", () => {
     const members = [{ id: 'u-pam', name: 'Pam Beesly' }] as TeamMember[];
     const text = 'With @Pam on [TH-1](/app/tickets/t1) and [x](/app/tickets/other)';

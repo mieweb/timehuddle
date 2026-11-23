@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTeamMembers } from './api';
-import { withoutProfileLinks } from './planItems';
+import { withoutReferenceLinks } from './planItems';
 import type { TeamMember } from './types';
 
 export interface MentionOption {
@@ -34,8 +34,9 @@ export const GROUP_MENTION_OPTIONS: MentionOption[] = [
 
 /** The group mentions written in `text`, by the same word-boundary rule as a person's. */
 export function detectGroupMentions(text: string): GroupMention[] {
-  // A teammate's profile link (`[@Team Support](…)`) names that person, not the team.
-  const typed = withoutProfileLinks(text);
+  // A teammate's profile link (`[@Team Support](…)`) names that person, and a
+  // ticket link's title (`[Fix @team alerts](…)`) names no one.
+  const typed = withoutReferenceLinks(text);
   return (['team', 'here'] as const).filter((group) =>
     new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(typed),
   );

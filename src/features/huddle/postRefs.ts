@@ -11,7 +11,7 @@ import {
   profileIdsInText,
   teamTicketIdsInText,
   ticketIdsInText,
-  withoutProfileLinks,
+  withoutReferenceLinks,
 } from './planItems';
 import type { TeamMember } from './types';
 import { detectMentions } from './useTeamMentions';
@@ -60,7 +60,9 @@ export function postRefsIn(text: string, refs: TeamRefs) {
   const linked = profileIdsInText(text).filter((id) => memberIds.has(id));
   return {
     // A link's label isn't scanned as typed: `@Ann-Marie Jones` would match `@Ann`.
-    mentions: [...new Set([...linked, ...detectMentions(withoutProfileLinks(text), refs.members)])],
+    mentions: [
+      ...new Set([...linked, ...detectMentions(withoutReferenceLinks(text), refs.members)]),
+    ],
     ticketIds: teamTicketIdsInText(text, refs.ticketIds),
   };
 }

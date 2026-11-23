@@ -93,10 +93,14 @@ export function profileIdsInText(text: string): string[] {
   return linkedIds(text, PROFILE_LINK);
 }
 
-/** `text` without its profile links, label and all — what's left of it is typed. */
-export function withoutProfileLinks(text: string): string {
+/**
+ * `text` without its profile and ticket links, label and all — what's left of
+ * it is typed. A picked label is a name or a ticket title, so an `@` in it
+ * (`Fix @team notifications`) mentions no one.
+ */
+export function withoutReferenceLinks(text: string): string {
   // A label may hold escaped brackets (`\\[PTO\\]`), so `\\` escapes are skipped whole.
-  return text.replace(/\[(?:\\.|[^\]\\])*\]\(\/app\/profile\/[^)\s]*\)/g, ' ');
+  return text.replace(/\[(?:\\.|[^\]\\])*\]\(\/app\/(?:profile|tickets)\/[^)\s]*\)/g, ' ');
 }
 
 /**
