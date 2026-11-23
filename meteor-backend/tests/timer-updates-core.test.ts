@@ -4,7 +4,14 @@
 import { describe, it, expect } from 'vitest';
 
 import { huddleTicketLabel, redmineIssueLabel } from '../server/ticket-label';
-import { TimerUpdate, startAction, timerUpdateText } from '../server/timer-updates-core';
+import {
+  PlanUpdate,
+  TimerUpdate,
+  planUpdateText,
+  startAction,
+  timerUpdateText,
+  workedFor,
+} from '../server/timer-updates-core';
 
 const ID = '64f0c1a2b3c4d5e6f7a3fa2c';
 const REDMINE_HOST = 'redmine.example.com';
@@ -47,6 +54,48 @@ describe('timerUpdateText', () => {
     expect(timerUpdateText(TimerUpdate.STARTED, label({ title: '*a* [b](c)' }))).toBe(
       `*Started [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
     );
+  });
+});
+
+describe('a switch that checks a ticket off (#886)', () => {
+  it('names the ticket checked off and its time', () => {
+    const other = huddleTicketLabel({ _id: 'b'.repeat(24), title: 'Docs', number: 9 }, IDS, null);
+    expect(
+      timerUpdateText(TimerUpdate.SWITCHED, label({}), {
+        checkedOff: { label: other, seconds: 70 * 60 + 59 },
+      }),
+    ).toBe(
+      `*Switched to [TH-123: Fix login](/app/tickets/${ID}) · [TH-9: Docs](/app/tickets/${'b'.repeat(24)}) checked off at 1h 10m*`,
+    );
+  });
+});
+
+describe('workedFor', () => {
+  it('reads in hours and minutes, minutes alone under an hour', () => {
+    expect(workedFor(0)).toBe('0m');
+    expect(workedFor(25 * 60 + 30)).toBe('25m');
+    expect(workedFor(2 * 3600)).toBe('2h 0m');
+  });
+});
+
+describe('planUpdateText (#886)', () => {
+  it('announces a ticket added to today’s plan', () => {
+    expect(planUpdateText(PlanUpdate.ADDED, { label: label({}) })).toBe(
+      `*Added [TH-123: Fix login](/app/tickets/${ID}) to today's plan*`,
+    );
+  });
+
+  it('says how long a ticket had when it was checked off by hand', () => {
+    expect(planUpdateText(PlanUpdate.CHECKED, { label: label({}) }, 600)).toBe(
+      `*Checked off [TH-123: Fix login](/app/tickets/${ID}) at 10m*`,
+    );
+  });
+
+  it('quotes a text item as plain words: a picked mention links no one', () => {
+    expect(
+      planUpdateText(PlanUpdate.UNCHECKED, { text: 'Call [@Ann](/app/profile/u1) *now*' }),
+    ).toBe('*Unchecked “Call @Ann \\*now\\*”*');
+    expect(planUpdateText(PlanUpdate.CHECKED, { text: 'Lunch' })).toBe('*Checked off “Lunch”*');
   });
 });
 

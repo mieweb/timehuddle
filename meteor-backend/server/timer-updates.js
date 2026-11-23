@@ -71,18 +71,71 @@ async function audienceFor(session, workItem) {
 }
 
 /**
+ * Write an update post: an ordinary Huddle post on the person's behalf, which
+ * the feed's publication carries live like any other.
+ * @returns {Promise<string>} the post's id
+ */
+export async function insertUpdatePost({ teamId, userId, text, at }) {
+  const now = at === undefined ? new Date() : new Date(at);
+  const post = {
+    _id: new ObjectId(),
+    teamId,
+    userId,
+    content: { text, mentions: [] },
+    attachments: [],
+    likes: [],
+    commentCount: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await rawDb().collection('huddlePosts').insertOne(post);
+  return post._id.toHexString();
+}
+
+/**
+ * How a team names its tickets in an update, by id: `Map<ticketId, label>`
+ * (ticket-label.js). A ticket gone from the team is left out.
+ */
+export async function teamTicketLabels(teamId, ticketIds) {
+  const ids = ticketIds.filter(isValidId);
+  if (!ids.length) return new Map();
+  const team = String(teamId);
+  const [rows, naming] = await Promise.all([
+    rawDb()
+      .collection('tickets')
+      .find(
+        {
+          _id: { $in: ids.map((id) => new ObjectId(id)) },
+          // A team's id is a string or, for older teams, an ObjectId.
+          teamId: { $in: isValidId(team) ? [team, new ObjectId(team)] : [team] },
+        },
+        { projection: { title: 1, number: 1, github: 1, linkIsIssue: 1, linkedIssue: 1 } },
+      )
+      .toArray(),
+    ticketIdsForTeams(rawDb(), [team]),
+  ]);
+  const redmineHost = hostOf(optionalRedmineBaseUrl());
+  const teamIds = naming.get(team);
+  return new Map(
+    rows.map((row) => [row._id.toHexString(), huddleTicketLabel(row, teamIds, redmineHost)]),
+  );
+}
+
+/**
  * Post an update for a timer session. An update that opens a session (started,
  * switched, resumed) is remembered on it, so it can be discarded if the stint
  * turns out to be a slip (`discardTimerUpdate`).
  *
  * @param {string} action one of `TimerUpdate`
  * @param {{ _id: unknown, userId: string, workItemId: string, clockEventId?: string | null }} session
- * @param {{ remember?: boolean, at?: number }} [options] `at` is when it
- *   happened (epoch ms), for an update that must read before something else
- *   stamped at the same moment; the default is now.
+ * @param {{ remember?: boolean, at?: number, checkedOff?: { ticketId: string, seconds: number } | null }} [options]
+ *   `at` is when it happened (epoch ms), for an update that must read before
+ *   something else stamped at the same moment; the default is now.
+ *   `checkedOff` is a ticket this switch checked off today's plan (M4), named
+ *   in the same update.
  * @returns {Promise<{ postId: string, teamId: string } | null>} null when nothing was posted
  */
-export async function postTimerUpdate(action, session, { remember = false, at } = {}) {
+export async function postTimerUpdate(action, session, { remember = false, at, checkedOff = null } = {}) {
   try {
     if (!session || !isValidId(session.workItemId)) return null;
     const workItem = await rawDb()
@@ -93,22 +146,18 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
     if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
     const ids = (await ticketIdsForTeams(rawDb(), [audience.teamId])).get(audience.teamId);
     const label = audience.label(ids, hostOf(optionalRedmineBaseUrl()));
+    const doneLabel = checkedOff
+      ? (await teamTicketLabels(audience.teamId, [checkedOff.ticketId])).get(checkedOff.ticketId)
+      : null;
 
-    const now = at === undefined ? new Date() : new Date(at);
-    const post = {
-      _id: new ObjectId(),
+    const postId = await insertUpdatePost({
       teamId: audience.teamId,
       userId: session.userId,
-      content: { text: timerUpdateText(action, label), mentions: [] },
-      attachments: [],
-      likes: [],
-      commentCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await rawDb().collection('huddlePosts').insertOne(post);
-
-    const postId = post._id.toHexString();
+      text: timerUpdateText(action, label, {
+        checkedOff: doneLabel ? { label: doneLabel, seconds: checkedOff.seconds } : null,
+      }),
+      at,
+    });
     if (remember) {
       await rawDb()
         .collection('timers')

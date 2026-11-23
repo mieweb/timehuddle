@@ -1,0 +1,232 @@
+/**
+ * Today's plan on the clock session (M4, #886) — its items and their checked
+ * state, kept on `clockevents.planItems` apart from the plan's Huddle post
+ * (see session-plan-core.js). The Clock page and My Board read it here; every
+ * change to it that the team should know about is a new Huddle update, never
+ * an edit to the plan post.
+ *
+ * Ticket timers keep it current through `planTouchAndGo`: starting a ticket
+ * unchecks its item, and the ticket switched away from is checked off.
+ */
+import { Meteor } from 'meteor/meteor';
+import { MongoInternals } from 'meteor/mongo';
+import { requireIdentity } from './auth-bridge';
+import { isValidId, rawDb } from './collections';
+import { normalizeSource } from './ticket-refs';
+import { mergePlan, planInput, touchAndGo, withChecked } from './session-plan-core';
+import { PlanUpdate, planUpdateText } from './timer-updates-core';
+import { insertUpdatePost, teamTicketLabels } from './timer-updates';
+import { ticketName } from './ticket-label';
+
+const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+const clockEvents = () => rawDb().collection('clockevents');
+const newItemId = () => new ObjectId().toHexString();
+
+/** The caller's open session on a team, or a hard stop. */
+async function openSession(userId, teamId) {
+  if (typeof teamId !== 'string' || !teamId) {
+    throw new Meteor.Error('bad-request', 'teamId is required');
+  }
+  const event = await clockEvents().findOne({ userId, teamId, endTime: null });
+  if (!event) throw new Meteor.Error('no-active-shift', 'Clock in to plan your day');
+  return event;
+}
+
+/**
+ * Seconds each ticket had in a session — closed stints plus the one running —
+ * and when the running one started: `Map<ticketId, { seconds, runningSince }>`.
+ */
+async function ticketTimes(userId, clockEventId, now = Date.now()) {
+  const sessions = await rawDb().collection('timers').find({ userId, clockEventId }).toArray();
+  const workItemIds = [...new Set(sessions.map((s) => s.workItemId))].filter(isValidId);
+  if (!workItemIds.length) return new Map();
+  const items = await rawDb()
+    .collection('workitems')
+    .find(
+      { _id: { $in: workItemIds.map((id) => new ObjectId(id)) } },
+      { projection: { source: 1, ticketId: 1 } },
+    )
+    .toArray();
+  const ticketOf = new Map(
+    items
+      .filter((item) => normalizeSource(item.source) === 'huddle')
+      .map((item) => [item._id.toHexString(), item.ticketId]),
+  );
+  const times = new Map();
+  for (const session of sessions) {
+    const ticketId = ticketOf.get(session.workItemId);
+    if (!ticketId) continue;
+    const time = times.get(ticketId) ?? { seconds: 0, runningSince: null };
+    if (session.endTime === null) {
+      time.seconds += Math.max(0, Math.floor((now - session.startTime) / 1000));
+      time.runningSince = session.startTime;
+    } else {
+      time.seconds += session.durationSeconds ?? 0;
+    }
+    times.set(ticketId, time);
+  }
+  return times;
+}
+
+/** A Huddle ticket's id from a work item, or null (a Redmine issue, a gone item). */
+async function huddleTicketOf(workItemId) {
+  if (!isValidId(workItemId)) return null;
+  const item = await rawDb()
+    .collection('workitems')
+    .findOne({ _id: new ObjectId(workItemId) }, { projection: { source: 1, ticketId: 1 } });
+  return item && normalizeSource(item.source) === 'huddle' ? item.ticketId : null;
+}
+
+/**
+ * The plan as the client shows it: each item with what it's called now, and
+ * for a ticket its time this session. A ticket since deleted is left out.
+ * `initialized` is false until the session has had a plan set.
+ */
+async function publicPlan(event) {
+  const stored = Array.isArray(event.planItems) ? event.planItems : [];
+  const ticketIds = stored.flatMap((item) => (item.ticketId ? [item.ticketId] : []));
+  const [labels, times] = await Promise.all([
+    teamTicketLabels(event.teamId, ticketIds),
+    ticketIds.length ? ticketTimes(event.userId, event._id.toHexString()) : new Map(),
+  ]);
+  const items = stored.flatMap((item) => {
+    if (!item.ticketId) return [{ id: item.id, text: item.text, checked: item.checked }];
+    const label = labels.get(item.ticketId);
+    if (!label) return [];
+    const time = times.get(item.ticketId);
+    return [
+      {
+        id: item.id,
+        ticketId: item.ticketId,
+        title: ticketName(label),
+        checked: item.checked,
+        seconds: time?.seconds ?? 0,
+        runningSince: time?.runningSince ?? null,
+      },
+    ];
+  });
+  return {
+    clockEventId: event._id.toHexString(),
+    initialized: Array.isArray(event.planItems),
+    items,
+  };
+}
+
+async function savePlan(event, items) {
+  await clockEvents().updateOne({ _id: event._id }, { $set: { planItems: items } });
+}
+
+/** Post one plan update per item, in order, a millisecond apart so they read that way. */
+async function postPlanUpdates(event, kind, items) {
+  if (!items.length) return;
+  const ticketIds = items.flatMap((item) => (item.ticketId ? [item.ticketId] : []));
+  const [labels, times] = await Promise.all([
+    teamTicketLabels(event.teamId, ticketIds),
+    kind === PlanUpdate.CHECKED && ticketIds.length
+      ? ticketTimes(event.userId, event._id.toHexString())
+      : new Map(),
+  ]);
+  const start = Date.now();
+  for (const [i, item] of items.entries()) {
+    const label = item.ticketId ? labels.get(item.ticketId) : null;
+    if (item.ticketId && !label) continue;
+    const seconds = item.ticketId && kind === PlanUpdate.CHECKED ? (times.get(item.ticketId)?.seconds ?? 0) : null;
+    await insertUpdatePost({
+      teamId: event.teamId,
+      userId: event.userId,
+      text: planUpdateText(kind, label ? { label } : { text: item.text }, seconds),
+      at: start + i,
+    });
+  }
+}
+
+/**
+ * Touch and go, for a ticket timer that just started inside a session (called
+ * by `timers.js`): the started ticket's item is unchecked, and the one it
+ * switched from is checked off. `discardPrevious` is a slip whose update is
+ * being thrown away, so it isn't checked off either.
+ *
+ * Best-effort, like the updates: a timer starts whatever happens here.
+ * @returns {Promise<{ ticketId: string, seconds: number } | null>} the ticket
+ *   checked off, with its time this session, for the switch's update to name
+ */
+export async function planTouchAndGo(userId, previous, session, { discardPrevious = false } = {}) {
+  try {
+    if (!isValidId(session?.clockEventId)) return null;
+    const event = await clockEvents().findOne({
+      _id: new ObjectId(session.clockEventId),
+      userId,
+      endTime: null,
+    });
+    if (!Array.isArray(event?.planItems) || !event.planItems.length) return null;
+    const [fromTicketId, toTicketId] = await Promise.all([
+      previous && !discardPrevious ? huddleTicketOf(previous.workItemId) : null,
+      huddleTicketOf(session.workItemId),
+    ]);
+    const { items, checkedOff, changed } = touchAndGo(event.planItems, { fromTicketId, toTicketId });
+    if (!changed) return null;
+    await savePlan(event, items);
+    if (!checkedOff) return null;
+    const times = await ticketTimes(userId, session.clockEventId);
+    return { ticketId: checkedOff.ticketId, seconds: times.get(checkedOff.ticketId)?.seconds ?? 0 };
+  } catch (err) {
+    console.error('[session-plan] touch and go failed:', err);
+    return null;
+  }
+}
+
+/** The team's tickets among `ticketIds`: a link to any other stays text, as in the post. */
+async function teamTickets(teamId, ticketIds) {
+  return new Set((await teamTicketLabels(teamId, ticketIds)).keys());
+}
+
+Meteor.methods({
+  /** Today's plan on the caller's open session in a team, or null when clocked out there. */
+  async 'clock.plan'({ teamId } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (typeof teamId !== 'string' || !teamId) return null;
+    const event = await clockEvents().findOne({ userId, teamId, endTime: null });
+    return event ? publicPlan(event) : null;
+  },
+
+  /**
+   * Set today's plan from its items in order (`{ ticketId }` or `{ text,
+   * checked? }`). Items already in it keep whether they're checked off. Each
+   * new item is announced ("Added TH-307 to today's plan"), except when
+   * `initial`: the plan the session opened with was announced by its post,
+   * and an initial plan never replaces one already set.
+   */
+  async 'clock.setPlan'({ teamId, items, initial = false } = {}) {
+    const { userId } = await requireIdentity(this);
+    const event = await openSession(userId, teamId);
+    const input = planInput(items);
+    if (!input) throw new Meteor.Error('bad-request', 'Not a plan');
+    const hadPlan = Array.isArray(event.planItems);
+    if (initial && hadPlan) return publicPlan(event);
+    const ours = await teamTickets(
+      teamId,
+      input.flatMap((item) => (item.ticketId ? [item.ticketId] : [])),
+    );
+    const kept = input.filter((item) => !item.ticketId || ours.has(item.ticketId));
+    const { items: next, added } = mergePlan(event.planItems, kept, newItemId);
+    await savePlan(event, next);
+    if (hadPlan && !initial) await postPlanUpdates(event, PlanUpdate.ADDED, added);
+    return publicPlan({ ...event, planItems: next });
+  },
+
+  /** Check an item off by hand, or uncheck it; either is announced. */
+  async 'clock.checkPlanItem'({ teamId, itemId, checked } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (typeof itemId !== 'string' || typeof checked !== 'boolean') {
+      throw new Meteor.Error('bad-request', 'itemId and checked are required');
+    }
+    const event = await openSession(userId, teamId);
+    const { items, changed } = withChecked(event.planItems ?? [], itemId, checked);
+    if (changed) {
+      await savePlan(event, items);
+      await postPlanUpdates(event, checked ? PlanUpdate.CHECKED : PlanUpdate.UNCHECKED, [changed]);
+    }
+    return publicPlan({ ...event, planItems: items });
+  },
+});
