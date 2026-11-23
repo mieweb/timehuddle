@@ -43,4 +43,9 @@ export const boardText = {
       ? 'Start session: plan your pinned ticket and start it once you clock in'
       : `Start session: plan your ${count} pinned tickets and start the first once you clock in`,
   columnHeading: 'My Board and timer',
+  /** A row's place in today's plan while clocked in (M4). */
+  inTodaysPlan: "Today's plan",
+  checkedOff: 'Checked off',
+  /** The live timer badge's name; its time follows. */
+  timerRunning: 'Timer running',
 };
