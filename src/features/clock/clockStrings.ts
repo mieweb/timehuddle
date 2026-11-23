@@ -125,12 +125,15 @@ export const clockText = {
   cancel: 'Cancel',
   planSaveFailed: 'Could not save the plan. Please try again.',
   planCheckFailed: 'Could not update the plan. Please try again.',
-  /** A ticket's time this session on its plan item; the running one says so. */
-  planItemTime: (time: string, running: boolean) => (running ? `${time} · running` : time),
-  /** Before the plan's ticket buttons. */
-  workOn: 'Work on',
-  /** A plan ticket's start button: its ID, as My Board leads with it. */
+  /** A plan ticket's timer button. */
   startPlanTicketLabel: (title: string) => `Start timer for ${title}`,
+  stopPlanTicketLabel: (title: string) => `Stop timer for ${title}`,
+  /** Starting a ticket that was taken out of today's plan. */
+  addBackTitle: "Add it back to today's plan?",
+  addBackBody: (title: string) =>
+    `${title} isn't in today's plan anymore. Add it back so your plan shows you're working on it, or just start its timer.`,
+  addBackAndStart: 'Add back and start',
+  justStart: 'Just start',
   /** The running ticket's badge under the clock: its name and live time. */
   runningTicketTime: (title: string, time: string) => `${title} · ${time}`,
 } as const;

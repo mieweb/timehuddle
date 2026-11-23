@@ -82,6 +82,8 @@ import {
   type PlanStart,
 } from '../features/huddle/planStartPlugin';
 import { usePlanTicketStart } from '../features/clock/usePlanTicketStart';
+import { useSessionPlan } from '../features/clock/useSessionPlan';
+import { todayPlanRows } from '../features/tickets/todayPlanRows';
 import { clockText } from '../features/clock/clockStrings';
 import { HuddleNotifyMenu } from '../features/huddle/HuddleNotifyMenu';
 import { useHuddleViewing } from '../features/huddle/useHuddleViewing';
@@ -758,9 +760,15 @@ export default function Huddle() {
     [navigate],
   );
   // The posted plan is the launching point for the day: your plan post for
-  // the session you're clocked in to starts its tickets' timers.
-  const { startPlanTicket, isStarting, busy: ticketStartBusy } = usePlanTicketStart();
+  // the session you're clocked in to starts and stops its tickets' timers.
   const runningTicket = useRunningTicket(!!activeClockEvent);
+  const sessionPlan = useSessionPlan();
+  const {
+    togglePlanTicket,
+    isBusy: isPlanTicketBusy,
+    busy: ticketTimerBusy,
+    addBackPrompt,
+  } = usePlanTicketStart(runningTicket, sessionPlan);
   const planStart = useMemo<PlanStart>(() => {
     const sessionId = activeClockEvent && !activeClockEvent.endTime ? activeClockEvent.id : null;
     return {
@@ -774,20 +782,29 @@ export default function Huddle() {
               .map((post) => post.id)
           : [],
       ),
-      start: (ticketId, title) => void startPlanTicket(ticketId, title),
-      isStarting,
-      busy: ticketStartBusy,
-      runningTicketId: runningTicket?.source === 'huddle' ? runningTicket.id : null,
+      toggle: togglePlanTicket,
+      isBusy: isPlanTicketBusy,
+      busy: ticketTimerBusy,
+      running:
+        runningTicket?.source === 'huddle'
+          ? {
+              ticketId: runningTicket.id,
+              // Its time this session, as the Clock page and My Board count it.
+              since: todayPlanRows(sessionPlan.plan, runningTicket).running?.since ?? null,
+            }
+          : null,
       startLabel: clockText.startPlanTicketLabel,
+      stopLabel: clockText.stopPlanTicketLabel,
     };
   }, [
     activeClockEvent,
     user,
     activePosts,
-    startPlanTicket,
-    isStarting,
-    ticketStartBusy,
+    togglePlanTicket,
+    isPlanTicketBusy,
+    ticketTimerBusy,
     runningTicket,
+    sessionPlan.plan,
   ]);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
@@ -1568,6 +1585,7 @@ export default function Huddle() {
                     />
                   </PlanStartProvider>
                 )}
+              {addBackPrompt}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
               {/* A team's bell; the Personal view mixes teams, so it has none. */}
               {conversationHeaderEl &&

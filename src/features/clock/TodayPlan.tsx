@@ -21,12 +21,22 @@ import {
   type ReferenceTrigger,
 } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 
 import type { SessionPlanItem } from '../../lib/api';
-import { formatDuration, formatTimer } from '../../lib/timeUtils';
+import { formatDuration } from '../../lib/timeUtils';
+import type { RunningTicket } from '../../lib/useRunningTicket';
 import { useRouter } from '../../ui/router';
-import { TimerToggleButton } from '../../ui/TimerToggleButton';
+import { TimerControl } from '../../ui/TimerControl';
 import {
   planChecklist,
   planItemWords,
@@ -45,14 +55,22 @@ const MarkdownEditor = lazy(() =>
 type TicketItem = Extract<SessionPlanItem, { ticketId: string }>;
 const isTicket = (item: SessionPlanItem): item is TicketItem => 'ticketId' in item;
 
-/** A ticket's whole time this session, its running stint up to `now` included. */
-export function planTicketSeconds(item: TicketItem, now: number): number {
-  const running = item.runningSince ? Math.floor((now - item.runningSince) / 1000) : 0;
-  return item.seconds + Math.max(0, running);
-}
+/** When a running ticket's time this session counts from: its earlier stints included. */
+const countsFrom = (item: TicketItem, runningSince: number) => runningSince - item.seconds * 1000;
 
-/** How a ticket's button names it: the ID it leads with (`TH-12`). */
-const ticketRef = (title: string) => title.split(': ')[0];
+/** The step rows ActionPlan rendered, in order, for each ticket's timer to go in front of. */
+function useStepRows(plan: React.RefObject<HTMLElement | null>) {
+  const [rows, setRows] = useState<HTMLElement[]>([]);
+  useLayoutEffect(() => {
+    const found = [
+      ...(plan.current?.querySelectorAll<HTMLElement>('[data-slot="action-plan-step"]') ?? []),
+    ];
+    setRows((prev) =>
+      prev.length === found.length && prev.every((row, i) => row === found[i]) ? prev : found,
+    );
+  });
+  return rows;
+}
 
 export interface TodayPlanProps {
   sessionPlan: SessionPlanState;
@@ -60,14 +78,24 @@ export interface TodayPlanProps {
   postedText: string | null;
   /** `@` teammates and `#` tickets in the editor, as in the clock-in composer. */
   triggers: ReferenceTrigger[];
-  /** Ticks every second, for the running ticket's time. */
-  now: number;
+  /** The ticket whose timer is running, if any. */
+  runningTicket: RunningTicket | null;
 }
 
-export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, postedText, triggers, now }) => {
+export const TodayPlan: React.FC<TodayPlanProps> = ({
+  sessionPlan,
+  postedText,
+  triggers,
+  runningTicket,
+}) => {
   const { navigate } = useRouter();
   const { plan, loading, error, refetch, setItems, setChecked } = sessionPlan;
-  const { startPlanTicket, isStarting, busy } = usePlanTicketStart();
+  const { togglePlanTicket, isRunning, isBusy, busy } = usePlanTicketStart(
+    runningTicket,
+    sessionPlan,
+  );
+  const planRef = useRef<HTMLElement>(null);
+  const stepRows = useStepRows(planRef);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -102,24 +130,17 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, postedText, t
           };
         }
         const running = !!item.runningSince;
-        const seconds = planTicketSeconds(item, now);
         return {
           id: item.id,
           title: item.title,
           status: item.checked ? 'done' : running ? 'in_progress' : 'todo',
-          // Under a minute reads as "0m": say nothing until there's time to show.
-          note:
-            running || seconds >= 60
-              ? clockText.planItemTime(
-                  running ? formatTimer(seconds) : formatDuration(seconds),
-                  running,
-                )
-              : undefined,
+          // A running ticket's time is under its timer button; a stopped one's
+          // logged time shows here once there's a minute of it.
+          note: !running && item.seconds >= 60 ? formatDuration(item.seconds) : undefined,
         };
       }),
-    [items, now],
+    [items],
   );
-  const tickets = items.filter(isTicket);
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
   const startEditing = () => {
@@ -195,6 +216,7 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, postedText, t
   return (
     <div className="today-plan flex shrink-0 flex-col gap-3">
       <ActionPlan
+        ref={planRef}
         items={steps}
         title={clockText.todaysPlan}
         headingLevel="h2"
@@ -244,29 +266,35 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, postedText, t
           </Text>
         )}
       </div>
-      {/* The plan is the launching point: each ticket not running starts here. */}
-      {tickets.some((item) => !item.runningSince) && (
-        <div className="today-plan-start flex flex-wrap items-center gap-2">
-          <Text variant="muted" size="sm">
-            {clockText.workOn}
-          </Text>
-          <ButtonGroup>
-            {tickets
-              .filter((item) => !item.runningSince)
-              .map((item) => (
-                <TimerToggleButton
-                  key={item.id}
-                  isRunning={false}
-                  label={ticketRef(item.title)}
-                  isLoading={isStarting(item.ticketId)}
-                  disabled={busy}
-                  ariaLabel={clockText.startPlanTicketLabel(item.title)}
-                  onClick={() => void startPlanTicket(item.ticketId, item.title)}
-                />
-              ))}
-          </ButtonGroup>
-        </div>
-      )}
+      {/* Each ticket's timer, in front of it in its row (ActionPlan has no
+          slot there): the plan is the launching point for the day. */}
+      {steps.map((step, i) => {
+        const item = byId.get(step.id);
+        const row = stepRows[i];
+        if (!item || !isTicket(item) || !row) return null;
+        const running = isRunning(item.ticketId);
+        return createPortal(
+          <span className="today-plan-timer order-first -my-1">
+            <TimerControl
+              isRunning={running}
+              runningSince={
+                running && item.runningSince ? countsFrom(item, item.runningSince) : null
+              }
+              isLoading={isBusy(item.ticketId)}
+              disabled={busy}
+              onClick={() => togglePlanTicket(item.ticketId, item.title)}
+              ariaLabel={
+                running
+                  ? clockText.stopPlanTicketLabel(item.title)
+                  : clockText.startPlanTicketLabel(item.title)
+              }
+              className="h-8 w-8"
+            />
+          </span>,
+          row,
+          step.id,
+        );
+      })}
     </div>
   );
 };

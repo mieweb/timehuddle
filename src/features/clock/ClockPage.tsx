@@ -1017,7 +1017,7 @@ export const ClockPage: React.FC = () => {
             sessionPlan={sessionPlan}
             postedText={sessionPlanText}
             triggers={triggers}
-            now={currentTime}
+            runningTicket={runningTicket}
           />
         )}
 

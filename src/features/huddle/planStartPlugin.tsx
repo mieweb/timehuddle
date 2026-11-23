@@ -1,7 +1,7 @@
 /**
  * The plan post as the day's launching point (M4, #886): in your own plan
- * post for the session you're clocked in to, each ticket chip gets a ▶ that
- * starts that ticket's timer. Wraps the references plugin's link: every other
+ * post for the session you're clocked in to, each ticket chip gets its timer
+ * button — ▶ to start it, or ⏸ with its running time under it. Wraps the references plugin's link: every other
  * link, and every other post, renders exactly as it did.
  *
  * Which posts qualify and how a start runs come from `PlanStartProvider`,
@@ -11,18 +11,20 @@
 import { useTextRenderContext, type SuperChatRenderPlugin } from '@mieweb/ui/components/SuperChat';
 import React, { createContext, useContext } from 'react';
 
-import { TimerToggleButton } from '../../ui/TimerToggleButton';
+import { TimerControl } from '../../ui/TimerControl';
 
 export interface PlanStart {
   /** Ids of the posts whose ticket chips start timers. */
   postIds: ReadonlySet<string>;
-  start: (ticketId: string, title: string) => void;
-  isStarting: (ticketId: string) => boolean;
-  /** Any start is in flight: one at a time, app-wide. */
+  /** Start the ticket, or stop it when it's the one running. */
+  toggle: (ticketId: string, title: string) => void;
+  isBusy: (ticketId: string) => boolean;
+  /** Any start or stop is in flight: one at a time, app-wide. */
   busy: boolean;
-  /** The ticket running now, which needs no ▶. */
-  runningTicketId: string | null;
+  /** The running ticket and when its time this session counts from. */
+  running: { ticketId: string; since: number | null } | null;
   startLabel: (title: string) => string;
+  stopLabel: (title: string) => string;
 }
 
 const PlanStartContext = createContext<PlanStart | null>(null);
@@ -67,21 +69,23 @@ export function withPlanStart(plugin: SuperChatRenderPlugin): SuperChatRenderPlu
     const { messageId } = useTextRenderContext();
     const link = <Link {...props} />;
     const ticketId = ticketIdOfHref(props.href);
-    if (!plan || !ticketId || !plan.postIds.has(messageId) || plan.runningTicketId === ticketId) {
-      return link;
-    }
+    if (!plan || !ticketId || !plan.postIds.has(messageId)) return link;
     const title = textOf(props.node as HastNode | undefined) || ticketId;
+    const running = plan.running?.ticketId === ticketId;
     return (
-      <span className="plan-ticket-start inline-flex items-center gap-1 align-middle">
-        {link}
-        <TimerToggleButton
-          isRunning={false}
-          isLoading={plan.isStarting(ticketId)}
+      <span className="plan-ticket-start inline-flex items-start gap-1 align-middle">
+        <TimerControl
+          isRunning={running}
+          runningSince={running ? (plan.running?.since ?? null) : null}
+          isLoading={plan.isBusy(ticketId)}
           disabled={plan.busy}
-          onClick={() => plan.start(ticketId, title)}
-          ariaLabel={plan.startLabel(title)}
+          onClick={() => plan.toggle(ticketId, title)}
+          ariaLabel={running ? plan.stopLabel(title) : plan.startLabel(title)}
           className="h-6 w-6"
+          // On the author's coloured bubble, the bubble's own text colour reads.
+          timeClassName="text-current"
         />
+        {link}
       </span>
     );
   }

@@ -15,14 +15,15 @@ const PLAN =
   '[TH-1: Alpha](/app/tickets/t1)\n\n[TH-2: Bravo](/app/tickets/t2)\n\n[@Pam](/app/profile/u1)';
 
 function renderPost(messageId: string, plan: Partial<PlanStart> = {}) {
-  const start = vi.fn();
+  const toggle = vi.fn();
   const value: PlanStart = {
     postIds: new Set(['plan-post']),
-    start,
-    isStarting: () => false,
+    toggle,
+    isBusy: () => false,
     busy: false,
-    runningTicketId: null,
+    running: null,
     startLabel: (title) => `Start timer for ${title}`,
+    stopLabel: (title) => `Stop timer for ${title}`,
     ...plan,
   };
   render(
@@ -30,16 +31,22 @@ function renderPost(messageId: string, plan: Partial<PlanStart> = {}) {
       {renderText(PLAN, { messageId, streaming: false, role: 'user' })}
     </PlanStartProvider>,
   );
-  return start;
+  return toggle;
 }
 
 describe('starting tickets from the plan post (#886)', () => {
-  it('puts a start beside each ticket of the plan post but the one running', () => {
-    const start = renderPost('plan-post', { runningTicketId: 't1' });
-    expect(screen.queryByRole('button', { name: 'Start timer for TH-1: Alpha' })).toBeNull();
+  it('puts a timer in front of each ticket of the plan post; the running one stops, with its time', () => {
+    const toggle = renderPost('plan-post', {
+      running: { ticketId: 't1', since: Date.now() - 65_000 },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop timer for TH-1: Alpha' }));
+    expect(screen.getByText('00:01:05')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start timer for TH-2: Bravo' }));
-    expect(start).toHaveBeenCalledWith('t2', 'TH-2: Bravo');
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(toggle.mock.calls).toEqual([
+      ['t1', 'TH-1: Alpha'],
+      ['t2', 'TH-2: Bravo'],
+    ]);
+    expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
   it('leaves every other post’s ticket links as they were', () => {

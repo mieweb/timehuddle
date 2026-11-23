@@ -7,9 +7,10 @@
  */
 import { Badge } from '@mieweb/ui';
 import { Timer } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 import { formatTimer } from '../lib/timeUtils';
+import { useNow } from '../lib/useNow';
 
 export interface LiveTimerBadgeProps {
   /** When the timer started, epoch ms. */
@@ -20,11 +21,7 @@ export interface LiveTimerBadgeProps {
 }
 
 export const LiveTimerBadge: React.FC<LiveTimerBadgeProps> = ({ since, label, className }) => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, []);
+  const now = useNow();
   return (
     <Badge
       variant="success"

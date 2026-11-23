@@ -393,10 +393,15 @@ post is not edited to show progress.
       [#797](https://github.com/mieweb/timehuddle/issues/797) — progress no
       longer edits it; showing the edit's time and author waits on #797
 - [x] Live timer `Badge` on the running ticket's row and under the Clock page's
-      timer; the plan item shows its time as the step's note
-- [ ] Follow-up: `ActionPlan` draws `renderStepMeta` only beside an owner or
-      due date, so the plan item's timer can't be a pill there yet — fix
-      upstream through `vendor/ui`
+      timer. Everywhere a ticket has a timer button (My Board, its page, today's
+      plan, the plan post), the running one shows its time under the button
+      (`TimerControl`)
+- [x] Starting a ticket from the plan post that was taken out of today's plan
+      asks first whether to add it back
+- [ ] Follow-up: `ActionPlan` has no slot in front of a step or for
+      `renderStepMeta` without an owner or due date, so the Clock page puts each
+      ticket's timer into its row with a portal — add the slot upstream through
+      `vendor/ui`
 - [x] After REST writes, refresh the feed rather than waiting for DDP (mobile may
       have no socket) — `requestHuddleRefresh`, served when Huddle resumes
 - [x] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its

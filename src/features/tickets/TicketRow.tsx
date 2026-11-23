@@ -41,7 +41,7 @@ import { useCopyLink } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { RowListItem } from '../../ui/RowList';
 import { LiveTimerBadge } from '../../ui/LiveTimerBadge';
-import { TimerToggleButton } from '../../ui/TimerToggleButton';
+import { TimerControl } from '../../ui/TimerControl';
 
 import { ticketTimerText } from '../timers/ticketTimerStrings';
 
@@ -181,8 +181,10 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           />
         </span>
       ) : (
-        <TimerToggleButton
+        <TimerControl
+          // The time counts from earlier stints this session, as the Clock page's does.
           isRunning={isTimerRunning}
+          runningSince={planRow.runningSince}
           isLoading={timerLoading}
           disabled={timerDisabled || boardLoading}
           onClick={() => onToggleTimer(ticket)}
