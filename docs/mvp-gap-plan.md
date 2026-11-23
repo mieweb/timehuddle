@@ -420,8 +420,8 @@ post is not edited to show progress.
 - [x] Live timer `Badge` on the running ticket's row and under the Clock page's
       timer. On a ticket's page, the running ticket shows its time under its
       timer button (`TimerControl`), as the plan editor will; My Board shows it as the
-      badge beside the title; in Huddle, the time is in the update that started
-      it, and the plan post has buttons only
+      badge beside the title; in Huddle, the plan post has buttons only, and the
+      "Started …" / "Switched to …" updates are plain text
 - [x] Starting a ticket from the plan post that was taken out of today's plan
       asks first whether to add it back
 - [x] After REST writes, refresh the feed rather than waiting for DDP (mobile may

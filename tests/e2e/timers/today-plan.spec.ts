@@ -76,8 +76,10 @@ test.describe("Today's plan in the editor", () => {
     await expect(boxes.nth(1)).not.toBeChecked();
 
     // A tick by hand saves at once, and survives a reload.
+    const saved = page.waitForResponse('**/api/clock_checkPlanItem');
     await boxes.nth(1).check();
     await expect(boxes.nth(1)).toBeChecked();
+    await saved;
     await page.reload();
     await expect(boxes).toHaveCount(2);
     await expect(boxes.nth(0)).toBeChecked();

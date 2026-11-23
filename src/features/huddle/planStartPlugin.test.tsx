@@ -21,7 +21,7 @@ function renderPost(messageId: string, plan: Partial<PlanStart> = {}) {
     toggle,
     isBusy: () => false,
     busy: false,
-    running: null,
+    runningTicketId: null,
     startLabel: (title) => `Start timer for ${title}`,
     stopLabel: (title) => `Stop timer for ${title}`,
     ...plan,
@@ -35,25 +35,20 @@ function renderPost(messageId: string, plan: Partial<PlanStart> = {}) {
 }
 
 describe('starting tickets from the plan post (#886)', () => {
-  it('puts a timer button in front of each ticket of the plan post; the running one stops, without its time', () => {
-    const running = { ticketId: 't1', since: Date.now() - 65_000, updatePostId: 'started-post' };
-    const toggle = renderPost('plan-post', { running });
+  it('puts a timer button in front of each ticket of the plan post; the running one stops', () => {
+    const toggle = renderPost('plan-post', { runningTicketId: 't1' });
     fireEvent.click(screen.getByRole('button', { name: 'Stop timer for TH-1: Alpha' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start timer for TH-2: Bravo' }));
     expect(toggle.mock.calls).toEqual([
       ['t1', 'TH-1: Alpha'],
       ['t2', 'TH-2: Bravo'],
     ]);
-    expect(screen.queryByText('00:01:05')).toBeNull();
   });
 
-  it('shows the running time under the stop button in the update that started it', () => {
-    renderPost('started-post', {
-      running: { ticketId: 't1', since: Date.now() - 65_000, updatePostId: 'started-post' },
-    });
-    expect(screen.getByRole('button', { name: 'Stop timer for TH-1: Alpha' })).toBeTruthy();
-    expect(screen.getByText('00:01:05')).toBeTruthy();
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+  it('leaves the update that started the running ticket as plain text', () => {
+    renderPost('started-post', { runningTicketId: 't1' });
+    expect(screen.getByRole('link', { name: 'TH-1: Alpha' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('leaves every other post’s ticket links as they were', () => {

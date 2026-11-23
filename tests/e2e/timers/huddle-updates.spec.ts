@@ -41,10 +41,9 @@ test.describe('Huddle updates for ticket timers', () => {
     await expect(page).toHaveURL(/\/app\/huddle/);
     const update = inboxMessage(page, `: ${title}`);
     await expect(update).toBeVisible({ timeout: 15000 });
-    // While its timer runs, the update shows the ticket's stop button with the
-    // running time in front of the ticket (#886): "Started 00:00:04TH-12: …".
-    await expect(update).toContainText(/Started (\d{2}:\d{2}:\d{2})?[A-Z][A-Z0-9]*-\d+/);
-    await expect(update.getByRole('button', { name: /^Stop timer for / })).toBeVisible();
+    // Just the text: no timer button or running time in the update (#886).
+    await expect(update).toContainText(/Started [A-Z][A-Z0-9]*-\d+/);
+    await expect(update.getByRole('button', { name: /^Stop timer for / })).toHaveCount(0);
 
     // The ticket's name is a link, and it opens the ticket here, not in a new tab.
     await update.getByRole('link').click();

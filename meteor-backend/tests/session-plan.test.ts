@@ -174,20 +174,6 @@ describe("today's plan on the session", () => {
     expect(planPost!.updatedAt.getTime()).toBe(planPost!.createdAt.getTime());
   });
 
-  it('names the update the running timer opened with, for Huddle to show its time there', async () => {
-    const started = await wormhole<{ update: { postId: string } }>(
-      'timers.createEntry',
-      { ticketId: alpha, date: today, startNow: true, notifyAdmins: false },
-      jwt,
-    );
-    const running = await wormhole<{ session: { updatePostId: string | null } }>(
-      'timers.getRunning',
-      {},
-      jwt,
-    );
-    expect(running.result.session.updatePostId).toBe(started.result.update.postId);
-  });
-
   it('announces a ticket added to the plan, and keeps what was checked', async () => {
     const db = await getDb();
     const third = await insertTicket('Charlie', 3);

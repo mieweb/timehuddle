@@ -102,7 +102,6 @@ describe('useRunningTicket', () => {
         url: '/app/tickets/tkt1',
         sessionId: 'sess1',
         startTime: STARTED_AT,
-        updatePostId: null,
       });
     });
     expect(mockGetDay).toHaveBeenCalledWith('2026-09-03');

@@ -2223,8 +2223,6 @@ export interface Timer {
   userId: string;
   /** The shift this session ran inside. Null for sessions that predate that link. */
   clockEventId: string | null;
-  /** The Huddle update this session opened with ("Started …"), if it posted one. */
-  updatePostId?: string | null;
   date: string;
   startTime: number; // epoch ms
   endTime: number | null;

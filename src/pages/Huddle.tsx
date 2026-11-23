@@ -83,7 +83,6 @@ import {
 } from '../features/huddle/planStartPlugin';
 import { usePlanTicketStart } from '../features/clock/usePlanTicketStart';
 import { useSessionPlan } from '../features/clock/useSessionPlan';
-import { todayPlanRows } from '../features/tickets/todayPlanRows';
 import { clockText } from '../features/clock/clockStrings';
 import { HuddleNotifyMenu } from '../features/huddle/HuddleNotifyMenu';
 import { useHuddleViewing } from '../features/huddle/useHuddleViewing';
@@ -785,15 +784,7 @@ export default function Huddle() {
       toggle: togglePlanTicket,
       isBusy: isPlanTicketBusy,
       busy: ticketTimerBusy,
-      running:
-        runningTicket?.source === 'huddle'
-          ? {
-              ticketId: runningTicket.id,
-              // Its time this session, as the Clock page and My Board count it.
-              since: todayPlanRows(sessionPlan.plan, runningTicket).running?.since ?? null,
-              updatePostId: runningTicket.updatePostId,
-            }
-          : null,
+      runningTicketId: runningTicket?.source === 'huddle' ? runningTicket.id : null,
       startLabel: clockText.startPlanTicketLabel,
       stopLabel: clockText.stopPlanTicketLabel,
     };
@@ -805,7 +796,6 @@ export default function Huddle() {
     isPlanTicketBusy,
     ticketTimerBusy,
     runningTicket,
-    sessionPlan.plan,
   ]);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
