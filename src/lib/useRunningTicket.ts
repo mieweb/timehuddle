@@ -25,6 +25,8 @@ export type RunningTicket = {
   sessionId: string;
   /** When this session started, epoch ms. */
   startTime: number;
+  /** The Huddle update this session opened with ("Started …"), if any. */
+  updatePostId: string | null;
 };
 
 export function useRunningTicket(enabled: boolean): RunningTicket | null {
@@ -56,6 +58,7 @@ export function useRunningTicket(enabled: boolean): RunningTicket | null {
         url: displayUrl,
         sessionId: session.id,
         startTime: session.startTime,
+        updatePostId: session.updatePostId ?? null,
       });
     } catch {
       setRunning(null);

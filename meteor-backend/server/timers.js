@@ -62,6 +62,8 @@ function toPublicSession(s) {
     workItemId: s.workItemId,
     userId: s.userId,
     clockEventId: s.clockEventId ?? null,
+    // The Huddle update this session opened with ("Started …", "Switched to …").
+    updatePostId: s.huddlePostId ?? null,
     date: s.date,
     startTime: s.startTime,
     endTime: s.endTime ?? null,

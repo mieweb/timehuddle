@@ -35,18 +35,25 @@ function renderPost(messageId: string, plan: Partial<PlanStart> = {}) {
 }
 
 describe('starting tickets from the plan post (#886)', () => {
-  it('puts a timer in front of each ticket of the plan post; the running one stops, with its time', () => {
-    const toggle = renderPost('plan-post', {
-      running: { ticketId: 't1', since: Date.now() - 65_000 },
-    });
+  it('puts a timer button in front of each ticket of the plan post; the running one stops, without its time', () => {
+    const running = { ticketId: 't1', since: Date.now() - 65_000, updatePostId: 'started-post' };
+    const toggle = renderPost('plan-post', { running });
     fireEvent.click(screen.getByRole('button', { name: 'Stop timer for TH-1: Alpha' }));
-    expect(screen.getByText('00:01:05')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start timer for TH-2: Bravo' }));
     expect(toggle.mock.calls).toEqual([
       ['t1', 'TH-1: Alpha'],
       ['t2', 'TH-2: Bravo'],
     ]);
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByText('00:01:05')).toBeNull();
+  });
+
+  it('shows the running time under the stop button in the update that started it', () => {
+    renderPost('started-post', {
+      running: { ticketId: 't1', since: Date.now() - 65_000, updatePostId: 'started-post' },
+    });
+    expect(screen.getByRole('button', { name: 'Stop timer for TH-1: Alpha' })).toBeTruthy();
+    expect(screen.getByText('00:01:05')).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('leaves every other post’s ticket links as they were', () => {

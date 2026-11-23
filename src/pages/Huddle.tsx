@@ -791,6 +791,7 @@ export default function Huddle() {
               ticketId: runningTicket.id,
               // Its time this session, as the Clock page and My Board count it.
               since: todayPlanRows(sessionPlan.plan, runningTicket).running?.since ?? null,
+              updatePostId: runningTicket.updatePostId,
             }
           : null,
       startLabel: clockText.startPlanTicketLabel,

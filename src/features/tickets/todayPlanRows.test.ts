@@ -36,6 +36,7 @@ const running = (key: string, startTime: number) =>
     title: '',
     url: null,
     sessionId: 's',
+    updatePostId: null,
   }) as RunningTicket;
 
 describe('todayPlanRows (#886)', () => {

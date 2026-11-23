@@ -65,6 +65,7 @@ const runningFor = (ageMs: number): RunningTicket => ({
   url: null,
   sessionId: 's0',
   startTime: Date.now() - ageMs,
+  updatePostId: null,
 });
 const MINUTE = 60 * 1000;
 /** What a closed session on Redmine issue #15 left to send: 31 minutes. */

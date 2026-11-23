@@ -1,7 +1,9 @@
 /**
  * The plan post as the day's launching point (M4, #886): in your own plan
  * post for the session you're clocked in to, each ticket chip gets its timer
- * button — ▶ to start it, or ⏸ with its running time under it. Wraps the references plugin's link: every other
+ * button — ▶ to start it, ⏸ while it runs. The update that started the
+ * running ticket ("Started …", "Switched to …") has its ⏸ too, with the
+ * running time under it. Wraps the references plugin's link: every other
  * link, and every other post, renders exactly as it did.
  *
  * Which posts qualify and how a start runs come from `PlanStartProvider`,
@@ -21,8 +23,11 @@ export interface PlanStart {
   isBusy: (ticketId: string) => boolean;
   /** Any start or stop is in flight: one at a time, app-wide. */
   busy: boolean;
-  /** The running ticket and when its time this session counts from. */
-  running: { ticketId: string; since: number | null } | null;
+  /**
+   * The running ticket, when its time this session counts from, and the
+   * update its timer opened with, where that time shows.
+   */
+  running: { ticketId: string; since: number | null; updatePostId: string | null } | null;
   startLabel: (title: string) => string;
   stopLabel: (title: string) => string;
 }
@@ -69,14 +74,18 @@ export function withPlanStart(plugin: SuperChatRenderPlugin): SuperChatRenderPlu
     const { messageId } = useTextRenderContext();
     const link = <Link {...props} />;
     const ticketId = ticketIdOfHref(props.href);
-    if (!plan || !ticketId || !plan.postIds.has(messageId)) return link;
-    const title = textOf(props.node as HastNode | undefined) || ticketId;
+    if (!plan || !ticketId) return link;
     const running = plan.running?.ticketId === ticketId;
+    const inPlan = plan.postIds.has(messageId);
+    // The running ticket's own update, where its time shows under its button.
+    const inUpdate = running && !!messageId && plan.running?.updatePostId === messageId;
+    if (!inPlan && !inUpdate) return link;
+    const title = textOf(props.node as HastNode | undefined) || ticketId;
     return (
       <span className="plan-ticket-start inline-flex items-start gap-1 align-middle">
         <TimerControl
           isRunning={running}
-          runningSince={running ? (plan.running?.since ?? null) : null}
+          runningSince={inUpdate ? (plan.running?.since ?? null) : null}
           isLoading={plan.isBusy(ticketId)}
           disabled={plan.busy}
           onClick={() => plan.toggle(ticketId, title)}
