@@ -11,8 +11,6 @@
  * the ticket switched from. The plan is edited with the same editor as the
  * clock-in plan, as text: removing an item is deleting its line.
  */
-import { faPlay } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionPlan,
   Button,
@@ -28,6 +26,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import type { SessionPlanItem } from '../../lib/api';
 import { formatDuration, formatTimer } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import {
   planChecklist,
   planItemWords,
@@ -255,18 +254,15 @@ export const TodayPlan: React.FC<TodayPlanProps> = ({ sessionPlan, postedText, t
             {tickets
               .filter((item) => !item.runningSince)
               .map((item) => (
-                <Button
+                <TimerToggleButton
                   key={item.id}
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<FontAwesomeIcon icon={faPlay} aria-hidden />}
+                  isRunning={false}
+                  label={ticketRef(item.title)}
                   isLoading={isStarting(item.ticketId)}
                   disabled={busy}
-                  aria-label={clockText.startPlanTicketLabel(item.title)}
+                  ariaLabel={clockText.startPlanTicketLabel(item.title)}
                   onClick={() => void startPlanTicket(item.ticketId, item.title)}
-                >
-                  {ticketRef(item.title)}
-                </Button>
+                />
               ))}
           </ButtonGroup>
         </div>
