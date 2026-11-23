@@ -6,6 +6,12 @@
  */
 
 import type { SourcePrefix } from '@lib/api';
+import {
+  linkedIds,
+  planChecklist,
+  ticketIdsInText,
+  type PlanItemInput,
+} from '@timehuddle/plan-items';
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
 import { ticketOutsideRefOf } from '../tickets/ticketIds';
 import type { TicketRef } from './useTicketSelection';
@@ -53,32 +59,8 @@ export function appendPlanItem(text: string, item: string): string {
   return trimmed ? `${trimmed}\n\n${item}` : item;
 }
 
-// A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.
-const TICKET_LINK = /\]\(\/app\/tickets\/(?!redmine\/)([^)/\s]+)\)/g;
-
-/** `id` URL-decoded, or null when it isn't valid encoding (a typed `%`). */
-function decodeId(id: string): string | null {
-  try {
-    return decodeURIComponent(id);
-  } catch {
-    return null;
-  }
-}
-
-// What renders as something other than a link: code (fenced or inline) and images.
-const NOT_A_LINK = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)/g;
-
-/** Ids `pattern` captures from `text`'s links, in order, each once; links quoted in code or images don't count. */
-function linkedIds(text: string, pattern: RegExp): string[] {
-  const links = text.replace(NOT_A_LINK, ' ');
-  const ids = [...links.matchAll(pattern)].flatMap((match) => decodeId(match[1]) ?? []);
-  return [...new Set(ids)];
-}
-
 /** Ids of the tickets `text` links to, in order, each once. */
-export function ticketIdsInText(text: string): string[] {
-  return linkedIds(text, TICKET_LINK);
-}
+export { ticketIdsInText };
 
 /** `text` with a plan line for each ticket it doesn't link yet, in the given order. */
 export function appendPlanTickets(text: string, tickets: { id: string; name: string }[]): string {
@@ -143,40 +125,11 @@ export function editedTicketIds(
 
 // ─── Today's plan as items (M4, #886) ────────────────────────────────────────
 
-/** An item of today's plan as the text gives it: a ticket, or a checklist line. */
-export type PlanItemInput = { ticketId: string } | { text: string; checked: boolean };
+/** Today's plan read out of its text (`@timehuddle/plan-items`, shared with the server). */
+export { planChecklist, type PlanItemInput };
 
 /** A plan item as the text has it, with the ticket's name for writing it back. */
 export type PlanItemText = { ticketId: string; title: string } | { text: string; checked: boolean };
-
-const FENCED_CODE = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
-const TASK_ITEM = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/;
-
-/**
- * Today's plan's items, read out of its text in order: each ticket it links
- * (once), and each checklist line (`- [ ] Call Pam`) that links none. Other
- * prose is the plan's wording, not an item.
- */
-export function planChecklist(text: string): PlanItemInput[] {
-  const items: PlanItemInput[] = [];
-  const seen = new Set<string>();
-  const add = (key: string, item: PlanItemInput) => {
-    if (seen.has(key)) return;
-    seen.add(key);
-    items.push(item);
-  };
-  for (const line of text.replace(FENCED_CODE, '').split('\n')) {
-    const tickets = ticketIdsInText(line);
-    if (tickets.length > 0) {
-      for (const ticketId of tickets) add(`ticket:${ticketId}`, { ticketId });
-      continue;
-    }
-    const task = TASK_ITEM.exec(line);
-    const words = task?.[2].trim();
-    if (task && words) add(`text:${words}`, { text: words, checked: task[1] !== ' ' });
-  }
-  return items;
-}
 
 /**
  * The plan's items as text the plan editor opens on: a ticket on its own line

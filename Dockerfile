@@ -28,12 +28,13 @@ COPY package.json package-lock.json ./
 COPY packages/youtube/package.json ./packages/youtube/
 # Every workspace package's manifest, so `npm install` links it; the code comes
 # with `COPY . .`.
-# app-links, ota-version and ticket-sources are copied whole, not just their manifests:
+# app-links, ota-version, plan-items and ticket-sources are copied whole, not just their manifests:
 # meteor-backend takes them as file: dependencies, so npm needs the real
 # packages present at install time — and that install runs before the
 # `COPY . .` below.
 COPY packages/app-links ./packages/app-links
 COPY packages/ota-version ./packages/ota-version
+COPY packages/plan-items ./packages/plan-items
 COPY packages/ticket-sources ./packages/ticket-sources
 COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
