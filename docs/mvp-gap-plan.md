@@ -378,6 +378,25 @@ post is not edited to show progress.
       M3 (`src/features/clock/TodayPlan.tsx`). The server starts the plan from
       the session's plan post the first time a page or timer needs it
       (`@timehuddle/plan-items`)
+  - **Why a read view next to the editor, not checkboxes in the editor:**
+    - _Checks change without typing._ Touch and go checks and unchecks items on
+      the server when a ticket starts — from the Board, Huddle or another
+      device. The editor reads its content once, when it opens: a live change
+      would either fight what's being typed or reload the editor and drop an
+      edit.
+    - _Each check is an event._ Ticking an item saves that one change and posts
+      "Checked off … at 1h 10m" at once. In the editor a tick is a text change,
+      saved only with the rest of the edit.
+    - _It shows what text can't._ "Working on it", the running ticket's time,
+      its logged time, "x of y done" with progress, and the timer button in
+      front of each ticket.
+    - _M3 keeps tickets as chips._ In the composer a ticket is a link chip with
+      no checkbox; only people's own lines are `- [ ]` items.
+    - _The editor already has a job there._ While clocked in, the Clock page's
+      editor is the wrap-up composer.
+    - So the editor changes the plan's shape (add, remove, reword, reorder) and
+      the read view shows and changes its state. **Edit plan** opens one from
+      the other.
 - [ ] The Pinned section reflects the same state — waits on M2
       ([#884](https://github.com/mieweb/timehuddle/issues/884)); My Board's rows
       already read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
