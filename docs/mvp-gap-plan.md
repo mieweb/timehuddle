@@ -129,10 +129,6 @@ is wiring, not new components; the one new component is `ReorderableList` (M1), 
 
 > "Michael wants the company website updated, so naturally he picked the best man."
 
-| Prototype                                                            | `main`                                                             |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| <img src="mvp-gap-plan/video-01-dashboard.jpg" width="280" alt="" /> | <img src="mvp-gap-plan/app-01-dashboard.png" width="260" alt="" /> |
-
 Same layout. The prototype's one-line brief ("Pin today's tickets, then start your
 session") is copy, not an issue.
 
@@ -140,10 +136,6 @@ session") is copy, not an issue.
 
 > "This is my board with all tickets from GitHub, Redmine and TimeHuddle. I pin the
 > catalog page and scrum … just drag and pin it to the rest of my list."
-
-| Prototype — drag to pin                                                      | Prototype — pinned + Start session                                      | `main`                                                           |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-02-board-drag-to-pin.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-06-pinned-three.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-02-tickets.png" width="230" alt="" /> |
 
 - **Real work:** a **Pinned (n)** section above **Rest of my board (n)**, an
   order the user controls, and a **Start session** button on the Pinned header.
@@ -165,14 +157,6 @@ other (M2).
 > Same thing … I tap clock in and my pinned tickets are already here. I can add
 > anything that isn't in a ticket, even mention someone. One tap: clocked in, plan
 > posted in Huddle, first ticket started."
-
-| Prototype — tickets inline in the plan                                          | Prototype — free text + @mention                                        | `main` — tickets as chips beside the editor                                |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-08-clock-plan-checklist.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-09-plan-mention.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-08-clock-plan-filled.png" width="230" alt="" /> |
-
-| Prototype — one tap from the board                                                    | `main` — Huddle plan post                                            |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-07-session-started-from-board.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-10-huddle-plan.png" width="230" alt="" /> |
 
 How it works on `main` today:
 
@@ -197,10 +181,6 @@ What the MVP needs:
 
 > "We can see the time going. I see my teammates are sending messages."
 
-| Prototype — live plan post                                                  | `main` — plan post + separate start/switch posts                            |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-10-huddle-plan-live.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-13-huddle-after-start.png" width="230" alt="" /> |
-
 In the prototype the plan post is the checklist, with a live timer on the active
 item and "Plan · edited 11:35 AM" after changes. **We won't follow that part.**
 Per the [principle](#principle-the-huddle-timeline-is-append-only), the plan
@@ -211,10 +191,6 @@ are the right model: progress is appended to the timeline.
 
 > "I record a beat — a few seconds of Pulse saved right on the ticket."
 
-| Prototype — uploading on the row                                          | Prototype — "▶ 1 video" badge                                            | `main` — running row                                                    |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-12-beat-uploading.jpg" width="200" alt="" /> | <img src="mvp-gap-plan/video-13-beat-attached.jpg" width="200" alt="" /> | <img src="mvp-gap-plan/app-11-ticket-running.png" width="200" alt="" /> |
-
 See [Ticket Beats and Videos (Experimental)](#ticket-beats-and-videos-experimental).
 Not an immediate requirement, but the display is part of the design and should be
 kept.
@@ -223,10 +199,6 @@ kept.
 
 > "I start this from the ticket and the catalog ticket ticks itself off with its
 > hour and ten minutes."
-
-| Prototype — checked off on the board                                          | Prototype — Today's plan on the Clock page                                   | `main` — Clock page while working                                     |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-14-ticket-checked-off.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-17-clock-todays-plan.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-14-clock-during.png" width="230" alt="" /> |
 
 For the MVP, checking off is kept simple: **touch and go**. Someone can move back
 and forth between tickets all day.
@@ -252,10 +224,6 @@ and forth between tickets all day.
 > board. I pin it and it joins my plan, here and in Huddle. … three dots, Edit
 > plan, gone — gone from my clock page too."
 
-| Assigned toast                                                            | Pinned → added to plan                                                     | ⋯ → Edit plan                                                              | `main` — ⋯ menu                                                             |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-19-assigned-toast.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20-plan-auto-added.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20b-edit-plan-menu.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/app-17-huddle-msg-actions.png" width="190" alt="" /> |
-
 - **Editing:** the prototype's ✕ per item and **Done** button are illustrative.
   **We don't want that UI, and we don't edit the Huddle post to drop an item.**
   Plan edits happen on the Clock page, where an item is removed by deleting its
@@ -272,10 +240,6 @@ and forth between tickets all day.
 > "I clock out with a Pulse so Michael gets my update at scrum … my wrap-up is in
 > Huddle for tomorrow's scrum and Pam's photos stay pinned for the morning."
 
-| Prototype — wrap-up post with the plan summary                         | `main` — wrap-up in Huddle                                             |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-26-wrapup-post.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-20-huddle-wrapup.png" width="230" alt="" /> |
-
 - **Nothing to build for recording.** Pulse already handles screen and camera
   capture, upload progress and the hand-off back to Huddle. The QR modal on
   `main` is the **web** path; in the **Capacitor** app the switch to Pulse and
@@ -289,10 +253,6 @@ and forth between tickets all day.
 
 > "At scrum Michael scrolls through yesterday's updates instead of making everyone
 > talk."
-
-| Prototype — day list with "▶ 3 videos"                                        | Prototype — stories player                                             | `main` — day list                                                    |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| <img src="mvp-gap-plan/video-15-huddle-days-videos.jpg" width="220" alt="" /> | <img src="mvp-gap-plan/video-16-day-stories.jpg" width="220" alt="" /> | <img src="mvp-gap-plan/app-16-huddle-days.png" width="220" alt="" /> |
 
 Videos play in Huddle today, and the day list is moving to Conversations in #866.
 A per-day video count and a stories player are not in the MVP.
@@ -500,8 +460,7 @@ is how ticket videos are meant to show, and the design should keep it.
   the [principle](#principle-the-huddle-timeline-is-append-only): readers lose
   the plan they read in the morning. Fixed in M5.
 - **Wrap-up composer opens with the plan text.** After clocking in, "What did you
-  work on?" already contains the plan
-  ([app-14-clock-during.png](mvp-gap-plan/app-14-clock-during.png)).
+  work on?" already contains the plan.
 
 ---
 
@@ -536,6 +495,3 @@ Whisper output with obvious mis-hearings corrected (e.g. "Sandler … cross boar
 [2:34] the morning. Time tracking is not a joke, Jim. That's how my day goes with TimeHuddle.
 [2:40] Plan it. Clock it. Done.
 ```
-
-All captures live in [mvp-gap-plan/](mvp-gap-plan/): `video-*.jpg` are
-prototype frames and `app-*.png` are `main` captures.
