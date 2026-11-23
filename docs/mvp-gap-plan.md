@@ -378,18 +378,20 @@ post is not edited to show progress.
       changed through `clock.plan` / `clock.setPlan` / `clock.checkPlanItem`;
       `meteor-backend/server/session-plan.js`)
 - [x] Clock page while clocked in: today's plan stays in the **same
-      `RichEditor`** the plan was written in — no separate component. Every
-      ticket in it becomes a **checklist item**, with its **▶/⏸ button** in
-      front and its **running timer below** the button
-      (`src/features/clock/TodayPlan.tsx`)
-- [x] No hand editing while clocked in: the editor's text is fixed; only the
-      checkboxes and the timer buttons act. A tick saves at once and posts to
-      Huddle
+      `RichEditor`** the plan was written in — no separate component.
+      **Clock in with a plan** turns every ticket in it into a **checklist
+      item**, with its **▶/⏸ button** in front and its **running timer below**
+      the button (`planTicketsAsChecklist` in `@timehuddle/plan-items`,
+      `src/features/clock/usePlanTaskEditor.tsx`). Teams with no wrap-up
+      composer get the same editor read-only (`src/features/clock/TodayPlan.tsx`)
+- [x] A tick or a timer button saves at once and posts to Huddle; the
+      checklist's text isn't how the plan changes mid-session
 - [ ] Mid-session the plan changes only by pinning: a ticket pinned while
       clocked in is added as a new checklist item (M2) and posts "Added … to
       today's plan"
-- [ ] At clock-out the wrap-up is the next edit of the plan, in the same
-      editor (how it's posted: M5)
+- [x] At clock-out the wrap-up is the next edit of the plan, in the same
+      editor: the wrap-up composer is that checklist, and it saves with the
+      session's checks (`withChecks`). How the wrap-up is posted: M5
 - [x] The ticket task item that draws ▶/⏸ and the running time needs no
       upstream change: TimeHuddle passes its own task item to `RichEditor`
       through `editorKits` (`src/features/clock/planTaskKit.ts`)

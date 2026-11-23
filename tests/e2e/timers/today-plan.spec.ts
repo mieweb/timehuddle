@@ -1,8 +1,8 @@
 /**
- * Today's plan while clocked in (M4, #886): the plan stays in the rich editor
- * it was written in, read-only, every ticket a checklist line with its timer
- * button in front of it and the running time under the button. Ticks and
- * switches are saved at once (touch and go).
+ * Today's plan while clocked in (M4, #886): Clock in with a plan turns the
+ * plan, in the same editor it was written in, into a checklist — each ticket
+ * a line with its timer button in front of it and the running time under the
+ * button. Ticks and switches are saved at once (touch and go).
  */
 import { test, expect } from '@playwright/test';
 
@@ -52,13 +52,12 @@ test.describe("Today's plan in the editor", () => {
     }
     await clock.postPlanAndClockIn();
 
-    const plan = page.locator('.today-plan');
+    // The same editor, now the wrap-up composer, holds the plan as a checklist.
+    const plan = page.locator('.clock-plan-composer');
     const boxes = plan.getByRole('checkbox');
     await expect(boxes).toHaveCount(2);
-    await expect(plan.getByText('0 of 2 done')).toBeVisible();
-    // Read-only, with no toolbar and nothing to edit the plan with.
-    await expect(plan.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false');
-    await expect(plan.getByRole('button', { name: /Edit plan|Toggle bold/ })).toHaveCount(0);
+    await expect(plan.locator('.ProseMirror')).toContainText('Today');
+    await expect(page.locator('.today-plan')).toHaveCount(0);
 
     const start = (title: string) =>
       plan.getByRole('button', { name: new RegExp(`^Start timer for .*${title}`) });
@@ -74,19 +73,18 @@ test.describe("Today's plan in the editor", () => {
     await start(bravo).click();
     await expect(stop(bravo)).toBeVisible();
     await expect(boxes.nth(0)).toBeChecked();
-    await expect(plan.getByText('1 of 2 done')).toBeVisible();
+    await expect(boxes.nth(1)).not.toBeChecked();
 
-    // A tick by hand saves at once.
+    // A tick by hand saves at once, and survives a reload.
     await boxes.nth(1).check();
-    await expect(plan.getByText('2 of 2 done')).toBeVisible();
+    await expect(boxes.nth(1)).toBeChecked();
     await page.reload();
-    await expect(page.locator('.today-plan').getByText('2 of 2 done')).toBeVisible();
+    await expect(boxes).toHaveCount(2);
+    await expect(boxes.nth(0)).toBeChecked();
+    await expect(boxes.nth(1)).toBeChecked();
 
     // Leave nothing running for the next spec.
-    await page
-      .locator('.today-plan')
-      .getByRole('button', { name: /^Stop timer for / })
-      .click();
+    await plan.getByRole('button', { name: /^Stop timer for / }).click();
     await clock.ensureClockedOut();
   });
 });

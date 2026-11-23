@@ -55,6 +55,8 @@ import {
   appendPlanItem,
   appendPlanTickets,
   planTicketItem,
+  planTicketsAsChecklist,
+  withChecks,
   planTicketName,
   ticketIdsInText,
 } from '../huddle/planItems';
@@ -83,6 +85,7 @@ import { RedminePushPanel } from './RedminePushPanel';
 import { TodayPlan } from './TodayPlan';
 import { useRecentSessions } from './useRecentSessions';
 import { useSessionPlan } from './useSessionPlan';
+import { usePlanTaskEditor } from './usePlanTaskEditor';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
@@ -173,6 +176,9 @@ export const ClockPage: React.FC = () => {
   const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
   // Today's plan as it stands — items checked off, the ticket running (M4).
   const sessionPlan = useSessionPlan();
+  // Once clocked in, the editor the plan was written in shows it as a
+  // checklist: each ticket a line with its ▶/⏸ and running time (M4).
+  const planEditor = usePlanTaskEditor(sessionPlan, runningTicket);
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -462,13 +468,16 @@ export const ClockPage: React.FC = () => {
 
   // Content pre-loaded into the (uncontrolled) wrap-up editor: THIS session's
   // plan post, so clocking out continues the same content you wrote at
-  // clock-in instead of a blank box. The plan composer starts empty.
+  // clock-in instead of a blank box — with its tickets as checklist lines, as
+  // clocking in left it (M4). The plan composer starts empty.
   const seedText =
     composerMode === 'wrapup'
-      ? (sessionPost?.content.text ??
-        sessionPostFetch?.content.text ??
-        postedPlan?.content.text ??
-        '')
+      ? planTicketsAsChecklist(
+          sessionPost?.content.text ??
+            sessionPostFetch?.content.text ??
+            postedPlan?.content.text ??
+            '',
+        )
       : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
@@ -702,11 +711,18 @@ export const ClockPage: React.FC = () => {
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
-      await clockIn({ planJustPosted: true, planPostId, at });
+      const clockedIn = await clockIn({ planJustPosted: true, planPostId, at });
+      // Clocked in, the plan becomes today's checklist in this same editor:
+      // each ticket a line with its timer (M4). The wrap-up opens on it.
+      if (clockedIn) {
+        const checklist = planTicketsAsChecklist(draft);
+        handedOverRef.current = { draft: checklist, plan: trimmed };
+        setText(checklist);
+      }
       // The editor keeps showing the plan while it posts, and the wrap-up
       // that replaces it opens on that same draft. Marked as seeded so it
       // doesn't remount to load the posted copy of the same text.
-      seededTokenRef.current = `wrapup:${trimmed}`;
+      seededTokenRef.current = `wrapup:${planTicketsAsChecklist(trimmed)}`;
     } catch (e) {
       // The post didn't go: its files come back, as they were.
       giveBack?.();
@@ -759,12 +775,21 @@ export const ClockPage: React.FC = () => {
         ).trim();
         // The draft handed over at clock-in is the plan, even where the
         // editor's copy differs from the posted one (image alt text).
+        // It may show the plan as today's checklist, its tickets as lines.
+        const shownPlan = planTicketsAsChecklist(planText);
         const editorNeverSawPlan =
           planText !== '' &&
           handedOverRef.current?.plan !== planText &&
-          !shownSeedRef.current.includes(planText);
-        const textToSave =
-          editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+          !shownSeedRef.current.includes(planText) &&
+          !shownSeedRef.current.includes(shownPlan);
+        // The checklist is saved with the plan's checks: a box in the editor
+        // shows the session's state, which its text doesn't hold.
+        const textToSave = withChecks(
+          editorNeverSawPlan && !trimmed.includes(planText) && !trimmed.includes(shownPlan)
+            ? `${planText}\n\n${trimmed}`
+            : trimmed,
+          planEditor.checkedOf,
+        );
         // Mentions a plan only attached (posted before plans linked them, so
         // no `@Name` in its text) were never shown, so stay — like tickets below.
         const planMentions =
@@ -1007,7 +1032,8 @@ export const ClockPage: React.FC = () => {
         )}
 
         {/* ── Today's plan: its live state, apart from the posted plan (M4) ── */}
-        {isClockedIn && (
+        {/* With a wrap-up composer, that editor shows the plan itself. */}
+        {isClockedIn && composerMode !== 'wrapup' && (
           <TodayPlan sessionPlan={sessionPlan} triggers={triggers} runningTicket={runningTicket} />
         )}
 
@@ -1096,8 +1122,23 @@ export const ClockPage: React.FC = () => {
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
                       triggers={triggers}
+                      // The wrap-up opens on today's plan: its checklist lines
+                      // carry each ticket's timer, and ticks save at once.
+                      editorKits={composerMode === 'wrapup' ? planEditor.editorKits : undefined}
                     />
                   </Suspense>
+                  {composerMode === 'wrapup' && (
+                    <>
+                      {planEditor.timers}
+                      <div role="alert" className="today-plan-error">
+                        {planEditor.failure && (
+                          <Text variant="destructive" size="sm">
+                            {planEditor.failure}
+                          </Text>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   {/* ── Attachment tiles (tickets and mentions are in the text) ── */}
                   <ComposerChips

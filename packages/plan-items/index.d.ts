@@ -7,3 +7,11 @@ export declare function planChecklist(
   text: string,
   isTeamTicket?: (ticketId: string) => boolean,
 ): PlanItemInput[];
+export declare function planTicketsAsChecklist(
+  text: string,
+  isTeamTicket?: (ticketId: string) => boolean,
+): string;
+export declare function withChecks(
+  text: string,
+  checkedOf: (item: { ticketId: string } | { text: string }) => boolean | undefined,
+): string;

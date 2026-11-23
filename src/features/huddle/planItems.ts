@@ -9,7 +9,9 @@ import type { SourcePrefix } from '@lib/api';
 import {
   linkedIds,
   planChecklist,
+  planTicketsAsChecklist,
   ticketIdsInText,
+  withChecks,
   type PlanItemInput,
 } from '@timehuddle/plan-items';
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
@@ -126,7 +128,7 @@ export function editedTicketIds(
 // ─── Today's plan as items (M4, #886) ────────────────────────────────────────
 
 /** Today's plan read out of its text (`@timehuddle/plan-items`, shared with the server). */
-export { planChecklist, type PlanItemInput };
+export { planChecklist, planTicketsAsChecklist, withChecks, type PlanItemInput };
 
 /** A plan item with what it needs to be written as a checklist line. */
 export type PlanItemText =

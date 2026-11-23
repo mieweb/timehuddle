@@ -65,3 +65,67 @@ export function planChecklist(text, isTeamTicket = () => true) {
   }
   return items;
 }
+
+// A whole ticket link, label and all: `[TH-7: Fix login](/app/tickets/<id>)`.
+const TICKET_LINK_WHOLE = /\[(?:\\.|[^\]\\])*\]\(\/app\/tickets\/(?!redmine\/)[^)\s]+\)/g;
+const BULLET = /^\s*[-*+]\s+/;
+const FENCE = /^\s*(```|~~~)/;
+
+/**
+ * The plan as a checklist once clocked in: each of the team's tickets becomes
+ * a checklist line (`- [ ] [TH-7: …](…)`). A line of tickets alone becomes
+ * one line per ticket; a line with words besides its tickets becomes one line
+ * as it reads. Checklist lines, other prose and code stay as written.
+ * @param {string} text
+ * @param {(ticketId: string) => boolean} [isTeamTicket]
+ */
+export function planTicketsAsChecklist(text, isTeamTicket = () => true) {
+  const out = [];
+  let inFence = false;
+  for (const line of text.split('\n')) {
+    if (FENCE.test(line)) inFence = !inFence;
+    if (inFence || FENCE.test(line) || TASK_ITEM.test(line)) {
+      out.push(line);
+      continue;
+    }
+    const ours = ticketIdsInText(line).filter(isTeamTicket);
+    if (ours.length === 0) {
+      out.push(line);
+      continue;
+    }
+    const body = line.replace(BULLET, '').trim();
+    const links = body.match(TICKET_LINK_WHOLE) ?? [];
+    const words = body.replace(TICKET_LINK_WHOLE, '').trim();
+    if (words) {
+      out.push(`- [ ] ${body}`);
+      continue;
+    }
+    const others = [];
+    for (const link of links) {
+      const [id] = ticketIdsInText(link);
+      if (id && isTeamTicket(id)) out.push(`- [ ] ${link}`);
+      else others.push(link);
+    }
+    if (others.length) out.push(others.join(' '));
+  }
+  return out.join('\n');
+}
+
+/**
+ * `text` with each checklist line's box set as `checkedOf` says for its item
+ * (its first linked ticket, else its words); lines it says nothing about stay.
+ * @param {string} text
+ * @param {(item: { ticketId: string } | { text: string }) => boolean | undefined} checkedOf
+ */
+export function withChecks(text, checkedOf) {
+  return text
+    .split('\n')
+    .map((line) => {
+      const task = TASK_ITEM.exec(line);
+      if (!task) return line;
+      const [ticketId] = ticketIdsInText(line);
+      const checked = checkedOf(ticketId ? { ticketId } : { text: task[2].trim() });
+      return checked === undefined ? line : line.replace(/\[[ xX]\]/, checked ? '[x]' : '[ ]');
+    })
+    .join('\n');
+}
