@@ -64,16 +64,25 @@ test.describe("Today's plan in the editor", () => {
     const stop = (title: string) =>
       plan.getByRole('button', { name: new RegExp(`^Stop timer for .*${title}`) });
 
-    // Start Alpha from its line: its running time shows under the button.
+    const pill = (title: string, state: 'running' | 'paused') =>
+      plan.getByRole('timer', { name: new RegExp(`${title} this session, ${state}$`) });
+
+    // Every ticket has its time pill, paused until started.
+    await expect(pill(alpha, 'paused')).toBeVisible();
+    await expect(pill(bravo, 'paused')).toBeVisible();
+
+    // Start Alpha from its line: its pill runs.
     await start(alpha).click();
     await expect(stop(alpha)).toBeVisible();
-    await expect(plan.locator('.timer-control-time')).toHaveCount(1);
+    await expect(pill(alpha, 'running')).toBeVisible();
 
-    // Switch to Bravo: Alpha is checked off (touch and go).
+    // Switch to Bravo: Alpha is checked off (touch and go), and its pill stays, paused.
     await start(bravo).click();
     await expect(stop(bravo)).toBeVisible();
     await expect(boxes.nth(0)).toBeChecked();
     await expect(boxes.nth(1)).not.toBeChecked();
+    await expect(pill(bravo, 'running')).toBeVisible();
+    await expect(pill(alpha, 'paused')).toBeVisible();
 
     // A tick by hand saves at once, and survives a reload.
     const saved = page.waitForResponse('**/api/clock_checkPlanItem');

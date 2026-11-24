@@ -15,11 +15,15 @@ export interface TodayPlanRow {
   checked: boolean | null;
   /** When its time this session would have started had it run unbroken, epoch ms; null when it isn't running. */
   runningSince: number | null;
+  /** In today's plan: its time this session before any current stint. Null when it isn't in the plan. */
+  seconds: number | null;
 }
 
 export interface TodayPlanRows {
   /** By `${sourceId}:${id}`, as `UnifiedTicket.key`. */
   planned: ReadonlyMap<string, boolean>;
+  /** Each plan ticket's time this session, stints already ended. */
+  seconds: ReadonlyMap<string, number>;
   running: { key: string; since: number } | null;
 }
 
@@ -40,9 +44,13 @@ export function todayPlanRows(
     planned.set(key, item.checked);
     earlierSeconds.set(key, item.seconds);
   }
-  if (!running) return { planned, running: null };
+  if (!running) return { planned, seconds: earlierSeconds, running: null };
   const earlier = (earlierSeconds.get(running.key) ?? 0) * 1000;
-  return { planned, running: { key: running.key, since: running.startTime - earlier } };
+  return {
+    planned,
+    seconds: earlierSeconds,
+    running: { key: running.key, since: running.startTime - earlier },
+  };
 }
 
 const TodayPlanRowsContext = createContext<TodayPlanRows | null>(null);
@@ -54,5 +62,6 @@ export function useTodayPlanRow(key: string): TodayPlanRow {
   return {
     checked: rows?.planned.get(key) ?? null,
     runningSince: rows?.running?.key === key ? rows.running.since : null,
+    seconds: rows?.seconds.get(key) ?? null,
   };
 }

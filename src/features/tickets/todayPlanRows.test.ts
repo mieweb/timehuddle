@@ -48,6 +48,13 @@ describe('todayPlanRows (#886)', () => {
     expect(rows.running).toBeNull();
   });
 
+  it('keeps each plan ticket’s time this session, for its paused pill', () => {
+    expect([...todayPlanRows(plan, null).seconds]).toEqual([
+      ['huddle:t1', 600],
+      ['huddle:t2', 60],
+    ]);
+  });
+
   it('counts a resumed plan ticket’s timer from its earlier stints this session', () => {
     expect(todayPlanRows(plan, running('huddle:t1', 5_000)).running).toEqual({
       key: 'huddle:t1',

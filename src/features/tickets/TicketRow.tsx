@@ -40,7 +40,7 @@ import { timeAgo } from '../../lib/date';
 import { useCopyLink } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { RowListItem } from '../../ui/RowList';
-import { LiveTimerBadge } from '../../ui/LiveTimerBadge';
+import { TimePill } from '../../ui/TimePill';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 import { ticketTimerText } from '../timers/ticketTimerStrings';
@@ -233,11 +233,23 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   // One height for every badge: an outlined one is otherwise taller than a
   // filled one by its border. A minimum, so a label long enough to wrap grows
   // its badge instead of spilling out of it.
+  // Its time on a line of its own: ticking while it runs, and frozen while a
+  // ticket of today's plan waits.
+  const timeLine =
+    (isTimerRunning && planRow.runningSince !== null) || planRow.seconds !== null ? (
+      <TimePill
+        runningSince={isTimerRunning ? planRow.runningSince : null}
+        seconds={planRow.seconds ?? 0}
+        label={
+          isTimerRunning && planRow.runningSince !== null
+            ? boardText.timerRunning
+            : boardText.timerPaused
+        }
+      />
+    ) : null;
+
   const properties = (
     <span className="ticket-row-facts contents [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
-      {isTimerRunning && planRow.runningSince !== null && (
-        <LiveTimerBadge since={planRow.runningSince} label={boardText.timerRunning} />
-      )}
       {planRow.checked !== null && (
         <Badge variant={planRow.checked ? 'secondary' : 'outline'} size="sm">
           {planRow.checked && <CircleCheck className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />}
@@ -420,6 +432,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
       }
       meta={meta}
       properties={properties}
+      footer={timeLine}
       actions={actions}
     />
   );

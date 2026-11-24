@@ -49,4 +49,5 @@ export const boardText = {
   checkedOff: 'Checked off',
   /** The live timer badge's name; its time follows. */
   timerRunning: 'Timer running',
+  timerPaused: 'Timer paused',
 };

@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 
 import type { SessionPlanItem } from '../../lib/api';
 import type { RunningTicket } from '../../lib/useRunningTicket';
+import { TimePill } from '../../ui/TimePill';
 import { TimerControl } from '../../ui/TimerControl';
 import { planItemWords } from '../huddle/planItems';
 import { clockText } from './clockStrings';
@@ -110,39 +111,66 @@ export function usePlanTaskEditor(
     [items],
   );
 
-  /** Each ticket's timer, in its checklist line in front of the ticket. */
+  /**
+   * Each ticket's ▶/⏸ in front of it, and its time this session in a pill
+   * under it, always: ticking while it runs, frozen while it doesn't.
+   */
   const timers = (
     <>
       {slots.map((slot) => {
         const lineItems = slot.ticketIds.flatMap((ticketId) => byTicket.get(ticketId) ?? []);
         if (!lineItems.length) return null;
-        return createPortal(
-          <span className="plan-task-timers inline-flex gap-1">
-            {lineItems.map((item) => {
-              const running = isRunning(item.ticketId);
-              return (
-                <TimerControl
-                  key={item.id}
-                  isRunning={running}
-                  runningSince={
-                    running && item.runningSince ? countsFrom(item, item.runningSince) : null
-                  }
-                  isLoading={isBusy(item.ticketId)}
-                  disabled={busy}
-                  onClick={() => togglePlanTicket(item.ticketId, item.title)}
-                  ariaLabel={
-                    running
-                      ? clockText.stopPlanTicketLabel(item.title)
-                      : clockText.startPlanTicketLabel(item.title)
-                  }
-                  className="h-7 w-7"
-                />
-              );
-            })}
-          </span>,
-          slot.element,
-          lineItems[0].id,
-        );
+        const since = (item: TicketItem) =>
+          isRunning(item.ticketId) && item.runningSince
+            ? countsFrom(item, item.runningSince)
+            : null;
+        return [
+          createPortal(
+            <span className="plan-task-pills inline-flex flex-wrap gap-1">
+              {lineItems.map((item) => {
+                const runningSince = since(item);
+                return (
+                  <TimePill
+                    key={item.id}
+                    runningSince={runningSince}
+                    seconds={item.seconds}
+                    label={
+                      runningSince !== null
+                        ? clockText.planTicketTimeRunning(item.title)
+                        : clockText.planTicketTimePaused(item.title)
+                    }
+                  />
+                );
+              })}
+            </span>,
+            slot.timeElement,
+            `${lineItems[0].id}-time`,
+          ),
+          createPortal(
+            <span className="plan-task-timers inline-flex gap-1">
+              {lineItems.map((item) => {
+                const running = isRunning(item.ticketId);
+                return (
+                  <TimerControl
+                    key={item.id}
+                    isRunning={running}
+                    isLoading={isBusy(item.ticketId)}
+                    disabled={busy}
+                    onClick={() => togglePlanTicket(item.ticketId, item.title)}
+                    ariaLabel={
+                      running
+                        ? clockText.stopPlanTicketLabel(item.title)
+                        : clockText.startPlanTicketLabel(item.title)
+                    }
+                    className="h-7 w-7"
+                  />
+                );
+              })}
+            </span>,
+            slot.element,
+            lineItems[0].id,
+          ),
+        ];
       })}
       {addBackPrompt}
     </>

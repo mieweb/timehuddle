@@ -22,7 +22,10 @@ import type { EditorView } from 'prosemirror-view';
 export type PlanTaskIdentity = { ticketIds: string[] } | { text: string };
 
 export interface PlanTaskSlot {
+  /** In front of the line's text: its tickets' ▶/⏸. */
   element: HTMLElement;
+  /** Under the line's text: its tickets' time pills. */
+  timeElement: HTMLElement;
   /** The tickets the line holds, in order; each gets its timer. */
   ticketIds: string[];
 }
@@ -132,6 +135,7 @@ class PlanTaskItemView {
     private registry: InternalRegistry,
   ) {
     this.dom = document.createElement('li');
+    this.dom.className = 'plan-task-item';
     const label = document.createElement('label');
     label.contentEditable = 'false';
     this.checkbox = document.createElement('input');
@@ -144,8 +148,11 @@ class PlanTaskItemView {
     // The box is named by its line's text.
     this.contentDOM.id = `plan-task-${++nextContentId}`;
     this.checkbox.setAttribute('aria-labelledby', this.contentDOM.id);
-    this.dom.append(label, slotElement, this.contentDOM);
-    this.slot = { element: slotElement, ticketIds: ticketIdsIn(node) };
+    const timeElement = document.createElement('span');
+    timeElement.className = 'plan-task-time';
+    timeElement.contentEditable = 'false';
+    this.dom.append(label, slotElement, this.contentDOM, timeElement);
+    this.slot = { element: slotElement, timeElement, ticketIds: ticketIdsIn(node) };
     this.syncChecked();
     registry.add(this.slot, this);
 
@@ -209,7 +216,8 @@ class PlanTaskItemView {
   }
 
   stopEvent(event: Event): boolean {
-    return this.slot.element.contains(event.target as Node);
+    const target = event.target as Node;
+    return this.slot.element.contains(target) || this.slot.timeElement.contains(target);
   }
 
   destroy(): void {

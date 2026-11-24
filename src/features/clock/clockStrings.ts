@@ -115,6 +115,9 @@ export const clockText = {
   /** A plan ticket's timer button. */
   startPlanTicketLabel: (title: string) => `Start timer for ${title}`,
   stopPlanTicketLabel: (title: string) => `Stop timer for ${title}`,
+  /** A plan ticket's time this session, in the pill under it. */
+  planTicketTimeRunning: (title: string) => `Time on ${title} this session, running`,
+  planTicketTimePaused: (title: string) => `Time on ${title} this session, paused`,
   /** Starting a ticket that was taken out of today's plan. */
   addBackTitle: "Add it back to today's plan?",
   addBackBody: (title: string) =>
