@@ -248,6 +248,21 @@ describe('actionable events', () => {
     });
   });
 
+  it('treats the auto clock-out notice as part of the shift-end event', () => {
+    const p = prefs({ shiftEnd: { desktop: true, phone: false } });
+    expect(resolveDelivery(p, { type: 'auto-clock-out' })).toEqual({
+      inbox: true,
+      desktop: true,
+      phone: false,
+    });
+    const off = prefs({ shiftEnd: { desktop: false, phone: false } });
+    expect(resolveDelivery(off, { type: 'auto-clock-out' })).toEqual({
+      inbox: true,
+      desktop: false,
+      phone: false,
+    });
+  });
+
   it('still drops it when the organization turns reminders off', () => {
     expect(
       resolveDelivery(null, {

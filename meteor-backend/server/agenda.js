@@ -63,6 +63,23 @@ async function notifyUser(userId, { title, body, data }) {
   return createNotification({ userId, title, body, data });
 }
 
+/**
+ * Close the session at 8h and tell the user. Replaces the shift-end reminder
+ * with the outcome, so the inbox keeps one entry per session.
+ */
+async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
+  const closed = await stopActiveClock(userId, teamId, now);
+  if (!closed) return; // clocked out some other way meanwhile — nothing to report
+  await rawDb()
+    .collection('notifications')
+    .deleteMany({ userId, 'data.clockEventId': clockEventId, 'data.type': 'shift-end-reminder' });
+  await notifyUser(userId, {
+    title: 'Huddle — Auto Clock-Out',
+    body,
+    data: { type: 'auto-clock-out', clockEventId, teamId, url: '/app/clock' },
+  }).catch((err) => console.error('[agenda] auto-clock-out notification failed:', err));
+}
+
 export async function initAgenda() {
   // Reuse Meteor's already-open MongoDB connection instead of opening a second
   // client — avoids a duplicate pool and the eager-connect failures that would
@@ -164,7 +181,13 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await autoClockOut({
+      clockEventId,
+      userId,
+      teamId,
+      now,
+      body: 'You were automatically clocked out after 8 hours, as you agreed.',
+    });
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
@@ -186,23 +209,13 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
-
-    // Rewrite the existing shift-end-reminder notification in-place to describe
-    // the auto-clock-out outcome (keeps exactly one inbox entry).
-    await rawDb()
-      .collection('notifications')
-      .updateOne(
-        { userId, 'data.clockEventId': clockEventId, 'data.type': 'shift-end-reminder' },
-        {
-          $set: {
-            read: true,
-            title: 'Huddle — Auto Clock-Out',
-            body: 'You were automatically clocked out after 8 hours because the shift-end reminder was not acknowledged.',
-            'data.type': 'auto-clock-out',
-          },
-        }
-      );
+    await autoClockOut({
+      clockEventId,
+      userId,
+      teamId,
+      now,
+      body: 'You were automatically clocked out after 8 hours because the shift-end reminder was not answered.',
+    });
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 

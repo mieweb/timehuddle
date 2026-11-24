@@ -48,7 +48,7 @@ export const EVENTS = Object.freeze({
   huddleGroupMention: { types: ['huddle-group-mention'], desktop: true, phone: false },
   ticketAssigned: { types: ['ticket-assigned'], desktop: true, phone: true },
   ticketLink: { types: ['ticket-link-changed'], desktop: true, phone: true },
-  shiftEnd: { types: ['shift-end-reminder'], desktop: true, phone: true },
+  shiftEnd: { types: ['shift-end-reminder', 'auto-clock-out'], desktop: true, phone: true },
   timesheetRequest: { types: ['timesheet-change-request'], desktop: true, phone: true },
   teamClock: {
     types: ['clock-in', 'clock-out', 'clock-session-changed'],
