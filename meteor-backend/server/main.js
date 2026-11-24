@@ -1589,6 +1589,27 @@ Meteor.startup(async () => {
     inputSchema: myBoardRefsSchema,
   });
 
+  const myBoardRefSchema = {
+    type: 'object',
+    properties: { ref: myBoardRefsSchema.properties.refs.items },
+    required: ['ref'],
+  };
+
+  Wormhole.expose('myBoard.pin', {
+    description: "Pin one of the caller's My Board entries, after the existing pins",
+    inputSchema: myBoardRefSchema,
+  });
+
+  Wormhole.expose('myBoard.unpin', {
+    description: "Unpin one of the caller's My Board entries (it stays on the board)",
+    inputSchema: myBoardRefSchema,
+  });
+
+  Wormhole.expose('myBoard.setPins', {
+    description: "Make these the caller's pins, in this order; every other board entry is unpinned",
+    inputSchema: myBoardRefsSchema,
+  });
+
   Wormhole.expose('clock.active', {
     description: "The caller's active clock event in a team, or null",
     inputSchema: {

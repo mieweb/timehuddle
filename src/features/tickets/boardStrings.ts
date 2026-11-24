@@ -26,5 +26,21 @@ export const boardText = {
       ? "One Redmine issue couldn't be added to My Board. Try again in a moment."
       : `${count} Redmine issues couldn't be added to My Board. Try again in a moment.`,
   undo: 'Undo',
+
+  /** Pinning: a ticket's place in the plan for the day (#884). */
+  pin: 'Pin',
+  unpin: 'Unpin',
+  pinFailed: "Couldn't pin that ticket. Try again in a moment.",
+  unpinFailed: "Couldn't unpin that ticket. Try again in a moment.",
+  reorderFailed: "Couldn't save your pins. Try again in a moment.",
+  pinnedSection: 'Pinned',
+  restSection: 'Rest of my board',
+  pinnedEmpty: 'Drag the tickets you plan to work on here, or pin them from their ⋮ menu.',
+  /** Writes the pins into today's plan and starts the first once clocked in. */
+  startSession: 'Start session',
+  startSessionLabel: (count: number) =>
+    count === 1
+      ? 'Start session: plan your pinned ticket and start it once you clock in'
+      : `Start session: plan your ${count} pinned tickets and start the first once you clock in`,
   columnHeading: 'My Board and timer',
 };

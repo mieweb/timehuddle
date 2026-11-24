@@ -68,6 +68,11 @@ export const clockText = {
   or: 'or',
   loadingPlan: 'Loading your plan…',
   postFailed: 'Failed to post. Please try again.',
+  /** Tickets waiting to start (a ▶, or Start session's pins) that couldn't be read into the plan. */
+  ticketsNotAdded: (count: number) =>
+    count === 1
+      ? "One ticket couldn't be added to your plan. Add it with Ticket."
+      : `${count} tickets couldn't be added to your plan. Add them with Ticket.`,
   noWrapUpTeam: 'No team for this session — cannot post a wrap-up.',
   shortcutHint: (mode: ComposerMode, empty: boolean) => {
     const action = mode === 'plan' ? 'clock in' : 'clock out';
