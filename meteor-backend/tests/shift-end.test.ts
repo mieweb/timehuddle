@@ -227,6 +227,34 @@ describe('auto clock-out notice', () => {
   );
 
   it(
+    'still tells a user who agreed even if reminders were turned off afterwards',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      await sendReminder(clockEventId);
+      const res = await wormhole('clock.agreeAutoClockout', { clockEventId }, jwt);
+      expect(res.ok).toBe(true);
+
+      const db = await getDb();
+      const teams = db.collection('teams');
+      await teams.updateOne(
+        { _id: new ObjectId(teamId) },
+        { $set: { 'settings.shiftEndReminders': false } },
+      );
+      try {
+        await runJobNow('shift-auto-clockout', clockEventId);
+        await waitFor(async () => (await clockEvent(clockEventId))?.endTime, 'the clock-out');
+        await expectSingleAutoClockOutNotice(clockEventId);
+      } finally {
+        await teams.updateOne(
+          { _id: new ObjectId(teamId) },
+          { $unset: { 'settings.shiftEndReminders': '' } },
+        );
+      }
+    },
+    JOB_TIMEOUT,
+  );
+
+  it(
     'tells the user when the reminder went unanswered',
     async () => {
       const clockEventId = await clockInPast8h();

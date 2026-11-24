@@ -218,6 +218,7 @@ describe('org settings', () => {
     expect(orgSettingForType('clock-in')).toBe('notifyAdminsOnClock');
     expect(orgSettingForType('clock-session-changed')).toBe('notifyAdminsOnClock');
     expect(orgSettingForType('shift-end-reminder')).toBe('shiftEndReminders');
+    expect(orgSettingForType('auto-clock-out')).toBeNull();
     expect(orgSettingForType('ticket-assigned')).toBeNull();
     expect(orgSettingForType('test')).toBeNull();
   });
