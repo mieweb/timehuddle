@@ -632,10 +632,18 @@ Meteor.methods({
     } else {
       const modified = await ClockEvents.updateAsync(
         { _id: event._id, endTime: null },
-        { $set: { shiftReminderResponse: 'disagreed', shiftAutoClockoutWorkSecs: null } }
+        {
+          $set: {
+            shiftReminderResponse: 'disagreed',
+            shiftAutoClockoutWorkSecs: null,
+            // Withdraws an earlier "Agree to Clock Out", which the agreed job checks instead.
+            autoClockoutAgreed: null,
+          },
+        }
       );
       if (modified === 0) throw new Meteor.Error('already-closed', 'Already clocked out');
       cancelClockJobsByName(clockEventId, 'shift-missed-clockout').catch(() => {});
+      cancelClockJobsByName(clockEventId, 'shift-auto-clockout').catch(() => {});
     }
 
     await notifications.deleteOne({ _id: new ObjectId(notificationId), userId });

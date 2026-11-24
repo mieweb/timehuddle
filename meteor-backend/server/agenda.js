@@ -66,11 +66,12 @@ async function notifyUser(userId, { title, body, data }) {
 /**
  * Close the session at 8h and tell the user and the team's admins. Replaces
  * the shift-end reminder with the outcome, so the user's inbox keeps one
- * entry per session.
+ * entry per session. `onlyIf` is what the session must still say at the moment
+ * it is closed, so an answer saved while the job runs is not overridden.
  */
-async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
-  const closed = await stopActiveClock(userId, teamId, now);
-  if (!closed) return; // clocked out some other way meanwhile — nothing to report
+async function autoClockOut({ clockEventId, userId, teamId, now, body, onlyIf }) {
+  const closed = await stopActiveClock(userId, teamId, now, onlyIf);
+  if (!closed) return; // clocked out, or answered, some other way meanwhile — nothing to report
   await rawDb()
     .collection('notifications')
     .deleteMany({ userId, 'data.clockEventId': clockEventId, 'data.type': 'shift-end-reminder' });
@@ -205,6 +206,7 @@ export async function initAgenda() {
       teamId,
       now,
       body: 'You were automatically clocked out after 8 hours, as you agreed.',
+      onlyIf: { autoClockoutAgreed: true },
     });
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
@@ -233,6 +235,7 @@ export async function initAgenda() {
       teamId,
       now,
       body: 'You were automatically clocked out after 8 hours because the shift-end reminder was not answered.',
+      onlyIf: { autoClockoutAgreed: { $ne: true }, shiftReminderResponse: { $ne: 'disagreed' } },
     });
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });

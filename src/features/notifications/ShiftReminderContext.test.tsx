@@ -1,7 +1,7 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Notification } from '../../lib/api';
+import { clockApi, notificationApi, type Notification } from '../../lib/api';
 import { ShiftReminderProvider } from './ShiftReminderContext';
 
 const team = vi.hoisted(() => ({
@@ -20,6 +20,7 @@ vi.mock('../../lib/ddp', () => ({
 }));
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
+  clockApi: { getActive: vi.fn() },
   notificationApi: {
     getInbox: vi.fn().mockResolvedValue([]),
     agreeClockout: vi.fn(),
@@ -62,6 +63,7 @@ function renderProvider() {
 
 describe('ShiftReminderProvider', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     team.activeClockEvent = { id: 'event-1' };
   });
   afterEach(cleanup);
@@ -72,17 +74,51 @@ describe('ShiftReminderProvider', () => {
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
-  it('closes the reminder when its session ends underneath it', () => {
+  function endSessionInClockState() {
+    team.activeClockEvent = null;
+    return screen.queryByRole('dialog');
+  }
+
+  it('closes the reminder when the server confirms its session ended', async () => {
+    vi.mocked(clockApi.getActive).mockResolvedValue(null);
     const { rerender } = renderProvider();
     act(() => live.push?.(reminder));
     expect(screen.getByRole('dialog')).toBeTruthy();
 
-    team.activeClockEvent = null;
+    endSessionInClockState();
     rerender(
       <ShiftReminderProvider>
         <p>page</p>
       </ShiftReminderProvider>,
     );
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('keeps the reminder when the clock state is only missing because a refresh failed', async () => {
+    vi.mocked(clockApi.getActive).mockRejectedValue(new Error('offline'));
+    const { rerender } = renderProvider();
+    act(() => live.push?.(reminder));
+
+    endSessionInClockState();
+    rerender(
+      <ShiftReminderProvider>
+        <p>page</p>
+      </ShiftReminderProvider>,
+    );
+    await waitFor(() => expect(clockApi.getActive).toHaveBeenCalled());
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('removes the reminder from the inbox list after Continue Working', async () => {
+    vi.mocked(notificationApi.respondShiftReminder).mockResolvedValue(undefined as never);
+    const handled = vi.fn();
+    window.addEventListener('timehuddle:shiftReminderHandled', handled);
+    renderProvider();
+    act(() => live.push?.(reminder));
+
+    fireEvent.click(screen.getByRole('button', { name: /continue working/i }));
+    await waitFor(() => expect(handled).toHaveBeenCalled());
+    expect((handled.mock.calls[0][0] as CustomEvent).detail).toEqual({ id: 'notif-1' });
+    window.removeEventListener('timehuddle:shiftReminderHandled', handled);
   });
 });

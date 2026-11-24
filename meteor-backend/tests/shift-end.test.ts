@@ -71,8 +71,8 @@ async function runJobNow(name: string, clockEventId: string) {
     );
 }
 
-/** Clock in and pretend the session started just over 8 hours ago, with its Huddle post. */
-async function clockInPast8h(): Promise<string> {
+/** Clock in and pretend the session started `agoMs` ago (just over 8 hours by default), with its Huddle post. */
+async function clockInPast8h(agoMs = PAST_8H_MS): Promise<string> {
   const res = await wormhole<{ id: string }>('clock.start', { teamId }, jwt);
   expect(res.ok).toBe(true);
   const db = await getDb();
@@ -85,7 +85,7 @@ async function clockInPast8h(): Promise<string> {
     .collection('clockevents')
     .updateOne(
       { _id: new ObjectId(res.result.id) },
-      { $set: { startTime: Date.now() - PAST_8H_MS } },
+      { $set: { startTime: Date.now() - agoMs } },
     );
   return res.result.id;
 }
@@ -171,6 +171,36 @@ afterAll(async () => {
 });
 
 describe('Continue Working', () => {
+  it(
+    'also withdraws an earlier agreement to be clocked out',
+    async () => {
+      // Just under 8h in, so the agreed job is still queued rather than due at once.
+      const clockEventId = await clockInPast8h(7 * 3600_000 + 50 * 60_000);
+      const reminder = await sendReminder(clockEventId);
+      const agreed = await wormhole('clock.agreeAutoClockout', { clockEventId }, jwt);
+      expect(agreed.ok).toBe(true);
+      await waitFor(() => jobOf('shift-auto-clockout', clockEventId), 'the agreed 8h job');
+
+      const res = await wormhole(
+        'clock.respondShiftReminder',
+        { notificationId: String(reminder._id), action: 'disagree' },
+        jwt,
+      );
+      expect(res.ok).toBe(true);
+
+      const event = await clockEvent(clockEventId);
+      expect(event?.autoClockoutAgreed).toBeFalsy();
+      expect(event?.shiftReminderResponse).toBe('disagreed');
+      expect(event?.endTime).toBeNull();
+      await waitFor(
+        async () => !(await jobOf('shift-auto-clockout', clockEventId)),
+        'the agreed 8h job to be cancelled',
+      );
+      await wormhole('clock.stop', { teamId }, jwt);
+    },
+    JOB_TIMEOUT,
+  );
+
   it(
     'keeps the user clocked in past 8 hours',
     async () => {
@@ -262,6 +292,28 @@ describe('auto clock-out notice', () => {
 
       await runJobNow('shift-missed-clockout', clockEventId);
       await waitFor(async () => (await clockEvent(clockEventId))?.endTime, 'the clock-out');
+      await expectSingleAutoClockOutNotice(clockEventId);
+    },
+    JOB_TIMEOUT,
+  );
+
+  it(
+    'closes a break that is still open when it clocks the user out',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      await sendReminder(clockEventId);
+      expect((await wormhole('clock.pause', { teamId }, jwt)).ok).toBe(true);
+
+      await runJobNow('shift-missed-clockout', clockEventId);
+      const event = await waitFor(
+        async () => (await clockEvent(clockEventId))?.endTime && (await clockEvent(clockEventId)),
+        'the clock-out',
+      );
+      const db = await getDb();
+      const breaks = await db.collection('clockbreaks').find({ clockEventId }).toArray();
+      expect(breaks).toHaveLength(1);
+      expect(typeof breaks[0].endTime).toBe('number');
+      expect(event.accumulatedTime).toBeGreaterThan(8 * 3600);
       await expectSingleAutoClockOutNotice(clockEventId);
     },
     JOB_TIMEOUT,

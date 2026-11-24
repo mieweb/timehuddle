@@ -231,16 +231,33 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
- * Close the user's active clock event in a team: close any running ticket
- * timers, auto-classify any open break, compute accumulatedTime (span minus
- * meal breaks), and set endTime. Returns the updated event doc, or null when
- * there was nothing open. Mirrors ClockService.stop / clock.stop.
+ * Close the user's active clock event in a team: set endTime and
+ * accumulatedTime (span minus meal breaks), then close any running ticket
+ * timers and auto-classify any open break. Returns the updated event doc, or
+ * null when there was nothing open.
+ *
+ * `onlyIf` is a filter the event must still match at the moment it is closed.
+ * The close is a single conditional write that claims the event before any
+ * side effect runs, so a response saved meanwhile (e.g. Continue Working)
+ * wins and nothing is closed or reported.
  */
-export async function stopActiveClock(userId, teamId, now = Date.now()) {
-  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+export async function stopActiveClock(userId, teamId, now = Date.now(), onlyIf = {}) {
+  const filter = { userId, teamId, endTime: null, ...onlyIf };
+  const event = await ClockEvents.findOneAsync(filter);
   if (!event) return null;
 
   const eventId = event._id.toHexString();
+  // An open break counts the same open or closed at `now` (classifyBreak), so
+  // the total can be worked out before the event is claimed.
+  const breaks = await findBreaksForEvent(eventId);
+  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const accumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
+
+  const claimed = await ClockEvents.updateAsync(
+    { ...filter, _id: event._id },
+    { $set: { endTime: now, accumulatedTime } }
+  );
+  if (claimed === 0) return null;
 
   // Close any running timer sessions for this user (mirrors clock.stop).
   await closeAllForUser(userId, now);
@@ -252,12 +269,5 @@ export async function stopActiveClock(userId, teamId, now = Date.now()) {
       $set: { endTime: now, ...classifyBreak(durationSeconds) },
     });
   }
-
-  const breaks = await findBreaksForEvent(eventId);
-  const shiftSpan = Math.floor((now - event.startTime) / 1000);
-  const deducted = computeDeductedBreakSeconds(breaks, now);
-  const accumulatedTime = Math.max(0, shiftSpan - deducted);
-
-  await ClockEvents.updateAsync(event._id, { $set: { endTime: now, accumulatedTime } });
   return ClockEvents.findOneAsync(event._id);
 }

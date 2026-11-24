@@ -34,7 +34,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { ApiError, notificationApi, type Notification } from '../../lib/api';
+import { ApiError, clockApi, notificationApi, type Notification } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
@@ -167,11 +167,29 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // The reminder is moot once its session ends (e.g. the 8h auto clock-out
   // fires while the modal is open), so dismiss it instead of leaving it up.
+  // The shared clock state also reads as "no session" when a refresh fails, so
+  // the server confirms the session really ended before the modal is dismissed.
   const pendingClockEventId = pendingNotif?.data?.clockEventId as string | undefined;
   useEffect(() => {
-    if (!pendingNotif || !clockReady) return;
-    if (pendingClockEventId && activeClockEvent?.id !== pendingClockEventId) closeModal();
-  }, [pendingNotif, pendingClockEventId, activeClockEvent?.id, clockReady, closeModal]);
+    if (!pendingClockEventId || !clockReady || activeClockEvent?.id === pendingClockEventId) return;
+    let cancelled = false;
+    clockApi
+      .getActive()
+      .then((active) => {
+        if (!cancelled && active?.id !== pendingClockEventId) closeModal();
+      })
+      .catch(() => {
+        /* can't tell — leave the reminder up */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingClockEventId, activeClockEvent?.id, clockReady, closeModal]);
+
+  // The server has deleted this reminder; the inbox list drops it too.
+  const dropReminderFromInbox = useCallback((id: string) => {
+    window.dispatchEvent(new CustomEvent('timehuddle:shiftReminderHandled', { detail: { id } }));
+  }, []);
 
   const handleAction = useCallback(
     async (action: 'agree' | 'disagree') => {
@@ -192,6 +210,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           notificationApi.markOneRead(pendingNotif.id).catch(() => {});
         } else {
           await notificationApi.respondShiftReminder(pendingNotif.id, 'disagree');
+          dropReminderFromInbox(pendingNotif.id);
         }
         closeModal();
       } catch (err: unknown) {
@@ -202,6 +221,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           err instanceof ApiError &&
           (err.status === 404 || /not[-\s]?found|already clocked out/i.test(err.message))
         ) {
+          dropReminderFromInbox(pendingNotif.id);
           closeModal();
           return;
         }
@@ -210,7 +230,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
         setRespondingTo(null);
       }
     },
-    [pendingNotif, closeModal],
+    [pendingNotif, closeModal, dropReminderFromInbox],
   );
 
   return (
