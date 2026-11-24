@@ -17,6 +17,8 @@
  * - "Agree to Clock Out" calls `clock.agreeAutoClockout`, which flags the clock
  *   event; the `shift-auto-clockout` job clocks the user out at 8h.
  * - Closing the modal without answering leaves the 8h auto clock-out in place.
+ * - The modal also closes by itself when its clock session ends (e.g. the 8h
+ *   auto clock-out fires while it is open).
  * - After agreeing, the persisted notification is marked as read so it
  *   doesn't reappear on the next session.
  */
@@ -162,6 +164,14 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     setPendingNotif(null);
     setRespondError(null);
   }, []);
+
+  // The reminder is moot once its session ends (e.g. the 8h auto clock-out
+  // fires while the modal is open), so dismiss it instead of leaving it up.
+  const pendingClockEventId = pendingNotif?.data?.clockEventId as string | undefined;
+  useEffect(() => {
+    if (!pendingNotif || !clockReady) return;
+    if (pendingClockEventId && activeClockEvent?.id !== pendingClockEventId) closeModal();
+  }, [pendingNotif, pendingClockEventId, activeClockEvent?.id, clockReady, closeModal]);
 
   const handleAction = useCallback(
     async (action: 'agree' | 'disagree') => {

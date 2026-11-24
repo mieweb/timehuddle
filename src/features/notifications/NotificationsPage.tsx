@@ -80,7 +80,7 @@ function resolveNotificationTarget(
     return;
   }
   if (data.type === 'auto-clock-out') {
-    navigate('/app/clock');
+    navigate('/app/huddle');
     return;
   }
   console.log('[resolveNotificationTarget] No URL found, staying on current page');

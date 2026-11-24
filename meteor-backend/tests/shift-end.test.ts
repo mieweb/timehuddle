@@ -19,6 +19,7 @@ let jwt: string;
 let userId: string;
 let adminId: string;
 let teamId: string;
+const sessionPostIds: Record<string, string> = {};
 
 /** The admin's "member clocked out" notices about USER. */
 async function adminClockOutNotices() {
@@ -70,11 +71,16 @@ async function runJobNow(name: string, clockEventId: string) {
     );
 }
 
-/** Clock in and pretend the session started just over 8 hours ago. */
+/** Clock in and pretend the session started just over 8 hours ago, with its Huddle post. */
 async function clockInPast8h(): Promise<string> {
   const res = await wormhole<{ id: string }>('clock.start', { teamId }, jwt);
   expect(res.ok).toBe(true);
   const db = await getDb();
+  sessionPostIds[res.result.id] = (
+    await db
+      .collection('huddlePosts')
+      .insertOne({ teamId, userId, clockEventId: res.result.id, createdAt: new Date() })
+  ).insertedId.toHexString();
   await db
     .collection('clockevents')
     .updateOne(
@@ -107,7 +113,9 @@ async function expectSingleAutoClockOutNotice(clockEventId: string) {
   );
   expect(notices).toHaveLength(1);
   expect(notices[0].read).toBe(false);
-  expect(notices[0].data.url).toBe('/app/clock');
+  expect(notices[0].data.url).toBe(
+    `/app/huddle?postId=${sessionPostIds[clockEventId]}&teamId=${teamId}`,
+  );
   expect(await notificationsOf(clockEventId, 'shift-end-reminder')).toHaveLength(0);
 
   const adminNotices = await waitFor(
@@ -155,6 +163,7 @@ afterAll(async () => {
   await db.collection('notifications').deleteMany({ userId: { $in: [userId, adminId] } });
   await db.collection('clockbreaks').deleteMany({ teamId });
   await db.collection('clockevents').deleteMany({ teamId });
+  await db.collection('huddlePosts').deleteMany({ teamId });
   await db.collection('teams').deleteMany({ code: TEAM_CODE });
   await purgeUser(USER.email);
   await purgeUser(ADMIN.email);

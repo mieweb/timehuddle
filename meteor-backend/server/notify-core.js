@@ -141,6 +141,13 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
   );
 }
 
+/** Where a clock-out notice leads: the session's Huddle post, else the member's Work tab. */
+export function clockOutUrl({ userId, teamId, sessionPost }) {
+  return sessionPost
+    ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+    : `/app/profile/${userId}?tab=work`;
+}
+
 /**
  * Tell a team's admins (and, for a manual clock-out, the member) that a
  * member clocked out. Links to the session's Huddle post when it has one,
@@ -153,9 +160,7 @@ export async function notifyClockOut({ userId, teamId, team, accumulatedTime, se
   const h = Math.floor(totalSecs / 3600);
   const m = Math.floor((totalSecs % 3600) / 60);
   const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
-  const url = sessionPost
-    ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
-    : `/app/profile/${userId}?tab=work`;
+  const url = clockOutUrl({ userId, teamId, sessionPost });
   const adminBody = auto
     ? `${userName} was automatically clocked out of ${team.name} after 8 hours (${durationText})`
     : `${userName} clocked out of ${team.name} (${durationText})`;

@@ -18,7 +18,7 @@ import { Agenda } from 'agenda';
 import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, findSessionPost, stopActiveClock } from './clock-core';
-import { createNotification, findTeam, notifyClockOut } from './notify-core';
+import { clockOutUrl, createNotification, findTeam, notifyClockOut } from './notify-core';
 import {
   deliverScheduledPost,
   isPostStillAwaitingDelivery,
@@ -74,10 +74,16 @@ async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
   await rawDb()
     .collection('notifications')
     .deleteMany({ userId, 'data.clockEventId': clockEventId, 'data.type': 'shift-end-reminder' });
+  const sessionPost = await findSessionPost(teamId, userId, clockEventId);
   await notifyUser(userId, {
     title: 'Huddle — Auto Clock-Out',
     body,
-    data: { type: 'auto-clock-out', clockEventId, teamId, url: '/app/clock' },
+    data: {
+      type: 'auto-clock-out',
+      clockEventId,
+      teamId,
+      url: clockOutUrl({ userId, teamId, sessionPost }),
+    },
   }).catch((err) => console.error('[agenda] auto-clock-out notification failed:', err));
 
   const team = await findTeam(teamId);
@@ -87,7 +93,7 @@ async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
     teamId,
     team,
     accumulatedTime: closed.accumulatedTime,
-    sessionPost: await findSessionPost(teamId, userId, clockEventId),
+    sessionPost,
     auto: true,
   }).catch((err) => console.error('[agenda] auto-clock-out admin notification failed:', err));
 }
