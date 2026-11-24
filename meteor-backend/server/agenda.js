@@ -17,8 +17,8 @@ import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
 import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
-import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
-import { createNotification } from './notify-core';
+import { computeWorkSeconds, findBreaksForEvent, findSessionPost, stopActiveClock } from './clock-core';
+import { createNotification, findTeam, notifyClockOut } from './notify-core';
 import {
   deliverScheduledPost,
   isPostStillAwaitingDelivery,
@@ -64,8 +64,9 @@ async function notifyUser(userId, { title, body, data }) {
 }
 
 /**
- * Close the session at 8h and tell the user. Replaces the shift-end reminder
- * with the outcome, so the inbox keeps one entry per session.
+ * Close the session at 8h and tell the user and the team's admins. Replaces
+ * the shift-end reminder with the outcome, so the user's inbox keeps one
+ * entry per session.
  */
 async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
   const closed = await stopActiveClock(userId, teamId, now);
@@ -78,6 +79,17 @@ async function autoClockOut({ clockEventId, userId, teamId, now, body }) {
     body,
     data: { type: 'auto-clock-out', clockEventId, teamId, url: '/app/clock' },
   }).catch((err) => console.error('[agenda] auto-clock-out notification failed:', err));
+
+  const team = await findTeam(teamId);
+  if (!team) return;
+  await notifyClockOut({
+    userId,
+    teamId,
+    team,
+    accumulatedTime: closed.accumulatedTime,
+    sessionPost: await findSessionPost(teamId, userId, clockEventId),
+    auto: true,
+  }).catch((err) => console.error('[agenda] auto-clock-out admin notification failed:', err));
 }
 
 export async function initAgenda() {

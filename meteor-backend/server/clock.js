@@ -16,7 +16,6 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, findUserById } from './auth-bridge';
-import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
 import { resolveSettings } from './settings';
 import {
@@ -28,6 +27,7 @@ import {
   computeTotalBreakSeconds,
   findBreaksForEvent,
   findBreaksForEvents,
+  findSessionPost,
   toBreakEntries,
   normalizeBreakEntries,
 } from './clock-core';
@@ -38,7 +38,12 @@ import {
   restartTimerForWorkItem,
   ticketSessionsForClockEvents,
 } from './timer-core';
-import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
+import {
+  createNotification,
+  notifyClockAdmins,
+  notifyClockOut,
+  userDisplayName,
+} from './notify-core';
 import { endSnoozeUntilClockIn } from './notification-prefs';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
@@ -947,18 +952,7 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // clockEventId — see clock-post-simple-plan.md). Drafts never count.
   // Used both by the plan-first clock-out gate and to deep-link the
   // clock-out notifications at the post showing the plan + wrap-up.
-  const sessionPost = await rawDb()
-    .collection('huddlePosts')
-    .findOne(
-      {
-        teamId,
-        userId,
-        clockEventId: event._id.toHexString(),
-        status: { $ne: 'draft' },
-        ...SESSION_POST_FILTER,
-      },
-      { sort: SESSION_POST_SORT }
-    );
+  const sessionPost = await findSessionPost(teamId, userId, event._id.toHexString());
 
   // Plan-first flow: when the team requires a plan, block clock-out until
   // THIS session's post has a wrap-up.
@@ -1014,48 +1008,13 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const pub = toPublicClockEvent(updated, closedBreaks);
 
   if (team) {
-    const userName = await userDisplayName(userId);
-    const totalSecs = pub.accumulatedTime ?? 0;
-    const h = Math.floor(totalSecs / 3600);
-    const m = Math.floor((totalSecs % 3600) / 60);
-    const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
-    const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-    // Prefer this session's Huddle post (shows the plan + wrap-up); fall
-    // back to the member's Work tab when the session had no post.
-    const clockOutUrl = sessionPost
-      ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
-      : `/app/profile/${userId}?tab=work`;
-    await Promise.all(
-      notifyAdmins.map((adminId) =>
-        createNotification({
-          userId: adminId,
-          title: 'Huddle',
-          body: `${userName} clocked out of ${team.name} (${durationText})`,
-          data: {
-            type: 'clock-out',
-            userId,
-            userName,
-            teamName: team.name,
-            teamId,
-            duration: durationText,
-            url: clockOutUrl,
-          },
-        }).catch(() => {})
-      )
-    );
-
-    createNotification({
+    const userName = await notifyClockOut({
       userId,
-      title: 'Huddle',
-      body: `You clocked out of ${team.name} (${durationText})`,
-      data: {
-        type: 'clock-out-self',
-        teamName: team.name,
-        teamId,
-        duration: durationText,
-        url: clockOutUrl,
-      },
-    }).catch(() => {});
+      teamId,
+      team,
+      accumulatedTime: pub.accumulatedTime,
+      sessionPost,
+    });
 
     void emitActivity({
       userId,

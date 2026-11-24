@@ -6,8 +6,32 @@
  * stays byte-for-byte consistent regardless of which backend (or job) writes
  * the close-out. No Meteor method/DDP context here — plain async helpers.
  */
-import { ClockEvents, ClockBreaks } from './collections';
+import { ClockEvents, ClockBreaks, rawDb } from './collections';
 import { closeAllForUser } from './timer-core';
+
+/**
+ * A session can hold several posts (the plan plus replies sent from the Huddle
+ * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
+ * earliest — never simply the newest, which may be an inbox reply.
+ */
+export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
+
+/**
+ * Narrows a session's posts to its plan/wrap-up candidates: an update posted
+ * from Huddle while clocked in joins the session (so it shows in that shift)
+ * but is never its plan, nor where the wrap-up goes.
+ */
+export const SESSION_POST_FILTER = { sessionUpdate: { $ne: true } };
+
+/** A clock session's Huddle post (its plan + wrap-up), or null. Drafts never count. */
+export function findSessionPost(teamId, userId, clockEventId) {
+  return rawDb()
+    .collection('huddlePosts')
+    .findOne(
+      { teamId, userId, clockEventId, status: { $ne: 'draft' }, ...SESSION_POST_FILTER },
+      { sort: SESSION_POST_SORT }
+    );
+}
 
 /** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
 export const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;

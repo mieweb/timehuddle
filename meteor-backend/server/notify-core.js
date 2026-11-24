@@ -28,6 +28,14 @@ function notifications() {
   return rawDb().collection('notifications');
 }
 
+/** A team by hex or legacy string id, or null. */
+export async function findTeam(teamId) {
+  if (!isValidId(teamId)) return null;
+  return rawDb()
+    .collection('teams')
+    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
+}
+
 /**
  * The team setting that governs this notification (#784), resolved through the
  * settings hierarchy: `{ value, locked }`, or null when none applies.
@@ -35,10 +43,8 @@ function notifications() {
 async function orgPolicyFor(data) {
   const setting = orgSettingForType(data.type);
   const teamId = data.teamId ? String(data.teamId) : null;
-  if (!setting || !isValidId(teamId)) return null;
-  const team = await rawDb()
-    .collection('teams')
-    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
+  if (!setting) return null;
+  const team = await findTeam(teamId);
   return team ? (await resolveSettings(team))[setting] : null;
 }
 
@@ -133,6 +139,57 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
       }).catch(() => {})
     )
   );
+}
+
+/**
+ * Tell a team's admins (and, for a manual clock-out, the member) that a
+ * member clocked out. Links to the session's Huddle post when it has one,
+ * else the member's Work tab. An `auto` clock-out skips the member's own
+ * notice: the 8h job sends its own. Returns the member's display name.
+ */
+export async function notifyClockOut({ userId, teamId, team, accumulatedTime, sessionPost, auto = false }) {
+  const userName = await userDisplayName(userId);
+  const totalSecs = accumulatedTime ?? 0;
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  const url = sessionPost
+    ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+    : `/app/profile/${userId}?tab=work`;
+  const adminBody = auto
+    ? `${userName} was automatically clocked out of ${team.name} after 8 hours (${durationText})`
+    : `${userName} clocked out of ${team.name} (${durationText})`;
+
+  await Promise.all(
+    (team.admins ?? [])
+      .filter((id) => id !== userId)
+      .map((adminId) =>
+        createNotification({
+          userId: adminId,
+          title: 'Huddle',
+          body: adminBody,
+          data: {
+            type: 'clock-out',
+            userId,
+            userName,
+            teamName: team.name,
+            teamId,
+            duration: durationText,
+            url,
+          },
+        }).catch(() => {})
+      )
+  );
+
+  if (!auto) {
+    createNotification({
+      userId,
+      title: 'Huddle',
+      body: `You clocked out of ${team.name} (${durationText})`,
+      data: { type: 'clock-out-self', teamName: team.name, teamId, duration: durationText, url },
+    }).catch(() => {});
+  }
+  return userName;
 }
 
 /** Resolve a user's display name (better-auth `user` collection). */

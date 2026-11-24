@@ -1,21 +1,33 @@
 /**
  * Shift end (#894) — "Continue Working" and the 8h auto clock-out jobs.
  *
- * Fixture: USER in a team. Each case clocks in, moves the session's start
- * back past 8h, then forces the Agenda jobs to run now instead of waiting.
- * Needs a backend with METEOR_AGENDA_ENABLED=true (the default for npm start).
+ * Fixture: USER, a member of a team run by ADMIN. Each case clocks in, moves
+ * the session's start back past 8h, then forces the Agenda jobs to run now
+ * instead of waiting. Needs a backend with METEOR_AGENDA_ENABLED=true (the
+ * default for npm start).
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } from './helpers';
 
 const USER = { name: 'Shift End User', email: 'wh-shift-end@test.dev', password: 'Password1!' };
+const ADMIN = { name: 'Shift End Admin', email: 'wh-shift-end-admin@test.dev', password: 'Password1!' };
 const TEAM_CODE = 'WHSHIFT1';
 const PAST_8H_MS = 8 * 3600_000 + 60_000;
 const JOB_TIMEOUT = 45_000;
 
 let jwt: string;
 let userId: string;
+let adminId: string;
 let teamId: string;
+
+/** The admin's "member clocked out" notices about USER. */
+async function adminClockOutNotices() {
+  const db = await getDb();
+  return db
+    .collection('notifications')
+    .find({ userId: adminId, 'data.type': 'clock-out', 'data.userId': userId })
+    .toArray();
+}
 
 /** Poll until `check` returns a truthy value, or fail after `timeoutMs`. */
 async function waitFor<T>(check: () => Promise<T>, what: string, timeoutMs = 30_000): Promise<T> {
@@ -97,18 +109,32 @@ async function expectSingleAutoClockOutNotice(clockEventId: string) {
   expect(notices[0].read).toBe(false);
   expect(notices[0].data.url).toBe('/app/clock');
   expect(await notificationsOf(clockEventId, 'shift-end-reminder')).toHaveLength(0);
+
+  const adminNotices = await waitFor(
+    async () => {
+      const found = await adminClockOutNotices();
+      return found.length ? found : null;
+    },
+    "the admin's clock-out notice",
+  );
+  expect(adminNotices).toHaveLength(1);
+  expect(adminNotices[0].body).toMatch(/was automatically clocked out of WH Shift End Team after 8 hours/);
+  expect(adminNotices[0].data.teamId).toBe(teamId);
 }
 
 beforeAll(async () => {
   await purgeUser(USER.email);
+  await purgeUser(ADMIN.email);
   jwt = (await createUserAndGetJwt(USER)).jwt;
+  await createUserAndGetJwt(ADMIN);
   const db = await getDb();
   userId = String((await db.collection('users').findOne({ 'emails.address': USER.email }))!._id);
+  adminId = String((await db.collection('users').findOne({ 'emails.address': ADMIN.email }))!._id);
   const team = {
     _id: new ObjectId(),
     name: 'WH Shift End Team',
-    members: [userId],
-    admins: [userId],
+    members: [userId, adminId],
+    admins: [adminId],
     code: TEAM_CODE,
     isPersonal: false,
     settings: { requirePlanForClock: false },
@@ -118,14 +144,20 @@ beforeAll(async () => {
   teamId = team._id.toHexString();
 });
 
+beforeEach(async () => {
+  const db = await getDb();
+  await db.collection('notifications').deleteMany({ userId: adminId });
+});
+
 afterAll(async () => {
   const db = await getDb();
   await db.collection('agendajobs').deleteMany({ 'data.userId': userId });
-  await db.collection('notifications').deleteMany({ userId });
+  await db.collection('notifications').deleteMany({ userId: { $in: [userId, adminId] } });
   await db.collection('clockbreaks').deleteMany({ teamId });
   await db.collection('clockevents').deleteMany({ teamId });
   await db.collection('teams').deleteMany({ code: TEAM_CODE });
   await purgeUser(USER.email);
+  await purgeUser(ADMIN.email);
   await closeDb();
 });
 
@@ -153,7 +185,17 @@ describe('Continue Working', () => {
       );
       expect(await notificationsOf(clockEventId, 'shift-end-reminder')).toHaveLength(0);
 
-      await wormhole('clock.stop', { teamId }, jwt);
+      // A manual clock-out still sends the usual notices, not the automatic ones.
+      const stop = await wormhole('clock.stop', { teamId }, jwt);
+      expect(stop.ok).toBe(true);
+      const [adminNotice] = await waitFor(
+        async () => {
+          const found = await adminClockOutNotices();
+          return found.length ? found : null;
+        },
+        "the admin's clock-out notice",
+      );
+      expect(adminNotice.body).toMatch(/^Shift End User clocked out of WH Shift End Team \(/);
     },
     JOB_TIMEOUT,
   );
@@ -206,6 +248,7 @@ describe('auto clock-out notice', () => {
         'the 8h job to run',
       );
       expect(await notificationsOf(clockEventId, 'auto-clock-out')).toHaveLength(0);
+      expect(await adminClockOutNotices()).toHaveLength(0);
     },
     JOB_TIMEOUT,
   );
