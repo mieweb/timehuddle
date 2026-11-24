@@ -177,7 +177,7 @@ async function runAutoClockOut(job, { onlyIf, now }) {
         ...onlyIf,
         _id: new ObjectId(clockEventId),
       });
-      if (claimed) owned = { event: claimed, token: claimed.closeLeaseToken };
+      if (claimed) owned = claimed;
     }
     if (owned) await finishAutoClockOut(owned.event, owned.token);
     await job.remove(); // one-shot: remove so it doesn't re-fire

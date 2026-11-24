@@ -295,8 +295,10 @@ export async function completeClose(eventId, token, pendingFlag) {
  * Claim the end of the user's open clock event in a team for an automatic
  * clock-out: set endTime and accumulatedTime (span minus meal breaks) and mark
  * the event `autoClockoutPending`, so the rest (settleClosedClock, the notices)
- * can be finished later if it is interrupted. Returns the claimed event, or
- * null when nothing matched.
+ * can be finished later if it is interrupted. Returns `{ event, token }`: the
+ * claimed event and the owner token this claim put on its lease (the token is
+ * never read back from the event, which another run may have replaced by then).
+ * Null when nothing matched.
  *
  * `onlyIf` is a filter the event must still match at the moment it is closed.
  * The close is a single conditional write, so an answer saved meanwhile (e.g.
@@ -313,6 +315,7 @@ export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
   const shiftSpan = Math.floor((now - event.startTime) / 1000);
   const accumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
 
+  const token = newCloseLeaseToken();
   const claimed = await ClockEvents.updateAsync(
     { ...filter, _id: event._id },
     {
@@ -321,12 +324,12 @@ export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
         accumulatedTime,
         autoClockoutPending: true,
         closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
-        closeLeaseToken: newCloseLeaseToken(),
+        closeLeaseToken: token,
       },
     }
   );
   if (claimed === 0) return null;
-  return ClockEvents.findOneAsync(event._id);
+  return { event: await ClockEvents.findOneAsync(event._id), token };
 }
 
 /**
