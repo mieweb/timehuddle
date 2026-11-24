@@ -209,7 +209,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           // Continue Working deletes the reminder server-side; agreeing keeps it, so mark it read.
           notificationApi.markOneRead(pendingNotif.id).catch(() => {});
         } else {
-          await notificationApi.respondShiftReminder(pendingNotif.id, 'disagree');
+          await notificationApi.respondShiftReminder(pendingNotif.id, 'disagree', clockEventId);
           dropReminderFromInbox(pendingNotif.id);
         }
         closeModal();

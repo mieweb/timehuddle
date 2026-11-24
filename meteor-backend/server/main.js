@@ -1811,6 +1811,8 @@ Meteor.startup(async () => {
       type: 'object',
       properties: {
         notificationId: { type: 'string' },
+        // The session, for when the reminder row is already gone
+        clockEventId: { type: 'string' },
         action: { type: 'string', enum: ['agree', 'disagree'] },
       },
       required: ['notificationId', 'action'],

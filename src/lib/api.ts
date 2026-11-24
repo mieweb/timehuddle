@@ -2030,9 +2030,20 @@ export const notificationApi = {
   agreeClockout: (clockEventId: string) =>
     wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
 
-  /** Answer the shift-end reminder. The server deletes the reminder; 'disagree' also cancels the 8h auto clock-out. */
-  respondShiftReminder: (notificationId: string, action: 'agree' | 'disagree') =>
-    wormholeCall<{ ok: boolean }>('clock.respondShiftReminder', { notificationId, action }),
+  /**
+   * Answer the shift-end reminder. The server deletes the reminder; 'disagree' also cancels the 8h
+   * auto clock-out. `clockEventId` lets the answer land even if the reminder row is already gone.
+   */
+  respondShiftReminder: (
+    notificationId: string,
+    action: 'agree' | 'disagree',
+    clockEventId?: string,
+  ) =>
+    wormholeCall<{ ok: boolean }>('clock.respondShiftReminder', {
+      notificationId,
+      action,
+      ...(clockEventId ? { clockEventId } : {}),
+    }),
 
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),

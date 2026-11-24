@@ -16,6 +16,7 @@ const PAST_8H_MS = 8 * 3600_000 + 60_000;
 const JOB_TIMEOUT = 45_000;
 
 let jwt: string;
+let adminJwt: string;
 let userId: string;
 let adminId: string;
 let teamId: string;
@@ -134,7 +135,7 @@ beforeAll(async () => {
   await purgeUser(USER.email);
   await purgeUser(ADMIN.email);
   jwt = (await createUserAndGetJwt(USER)).jwt;
-  await createUserAndGetJwt(ADMIN);
+  adminJwt = (await createUserAndGetJwt(ADMIN)).jwt;
   const db = await getDb();
   userId = String((await db.collection('users').findOne({ 'emails.address': USER.email }))!._id);
   adminId = String((await db.collection('users').findOne({ 'emails.address': ADMIN.email }))!._id);
@@ -171,6 +172,40 @@ afterAll(async () => {
 });
 
 describe('Continue Working', () => {
+  it(
+    'still saves when the reminder was already cleared elsewhere',
+    async () => {
+      const clockEventId = await clockInPast8h(7 * 3600_000 + 50 * 60_000);
+      const reminder = await sendReminder(clockEventId);
+      await waitFor(() => jobOf('shift-missed-clockout', clockEventId), 'the 8h job');
+      const db = await getDb();
+      await db.collection('notifications').deleteOne({ _id: reminder._id });
+
+      // Only the session's owner may answer for it.
+      const intruder = await wormhole(
+        'clock.respondShiftReminder',
+        { notificationId: String(reminder._id), clockEventId, action: 'disagree' },
+        adminJwt,
+      );
+      expect(intruder.ok).toBe(false);
+      expect((await clockEvent(clockEventId))?.shiftReminderResponse).toBeUndefined();
+
+      const res = await wormhole(
+        'clock.respondShiftReminder',
+        { notificationId: String(reminder._id), clockEventId, action: 'disagree' },
+        jwt,
+      );
+      expect(res.ok).toBe(true);
+      expect((await clockEvent(clockEventId))?.shiftReminderResponse).toBe('disagreed');
+      await waitFor(
+        async () => !(await jobOf('shift-missed-clockout', clockEventId)),
+        'the 8h job to be cancelled',
+      );
+      await wormhole('clock.stop', { teamId }, jwt);
+    },
+    JOB_TIMEOUT,
+  );
+
   it(
     'also withdraws an earlier agreement to be clocked out',
     async () => {

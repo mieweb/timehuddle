@@ -596,25 +596,33 @@ Meteor.methods({
     return { ok: true };
   },
 
-  /** Handle agree/disagree to a shift-end reminder notification. */
-  async 'clock.respondShiftReminder'({ notificationId, action } = {}) {
+  /**
+   * Handle agree/disagree to a shift-end reminder. The reminder row may already
+   * be gone (answered or cleared on another tab or device); `clockEventId` then
+   * identifies the session, and the event's own ownership is what is checked.
+   */
+  async 'clock.respondShiftReminder'({ notificationId, clockEventId: givenEventId, action } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    if (!isValidId(notificationId)) throw new Meteor.Error('not-found', 'Notification not found');
 
     const notifications = rawDb().collection('notifications');
-    const notification = await notifications.findOne({ _id: new ObjectId(notificationId) });
-    if (!notification) throw new Meteor.Error('not-found', 'Notification not found');
-    if (notification.userId !== userId) {
-      throw new Meteor.Error('forbidden', 'Not your notification');
-    }
+    const notification = isValidId(notificationId)
+      ? await notifications.findOne({ _id: new ObjectId(notificationId) })
+      : null;
 
-    const data = notification.data ?? {};
-    if (data.type !== 'shift-end-reminder') throw new Meteor.Error('bad-request', 'Wrong type');
-
-    const clockEventId = typeof data.clockEventId === 'string' ? data.clockEventId : '';
-    if (!clockEventId || !isValidId(clockEventId)) {
-      throw new Meteor.Error('bad-request', 'Missing clock event');
+    let clockEventId = givenEventId;
+    if (notification) {
+      if (notification.userId !== userId) {
+        throw new Meteor.Error('forbidden', 'Not your notification');
+      }
+      const data = notification.data ?? {};
+      if (data.type !== 'shift-end-reminder') throw new Meteor.Error('bad-request', 'Wrong type');
+      clockEventId = typeof data.clockEventId === 'string' ? data.clockEventId : '';
+      if (!clockEventId || !isValidId(clockEventId)) {
+        throw new Meteor.Error('bad-request', 'Missing clock event');
+      }
+    } else if (!isValidId(clockEventId)) {
+      throw new Meteor.Error('not-found', 'Notification not found');
     }
 
     const event = await ClockEvents.findOneAsync(oid(clockEventId));
@@ -646,7 +654,7 @@ Meteor.methods({
       cancelClockJobsByName(clockEventId, 'shift-auto-clockout').catch(() => {});
     }
 
-    await notifications.deleteOne({ _id: new ObjectId(notificationId), userId });
+    if (notification) await notifications.deleteOne({ _id: notification._id, userId });
     return { ok: true };
   },
 

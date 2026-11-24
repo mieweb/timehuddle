@@ -118,6 +118,11 @@ describe('ShiftReminderProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /continue working/i }));
     await waitFor(() => expect(handled).toHaveBeenCalled());
+    expect(notificationApi.respondShiftReminder).toHaveBeenCalledWith(
+      'notif-1',
+      'disagree',
+      'event-1',
+    );
     expect((handled.mock.calls[0][0] as CustomEvent).detail).toEqual({ id: 'notif-1' });
     window.removeEventListener('timehuddle:shiftReminderHandled', handled);
   });
