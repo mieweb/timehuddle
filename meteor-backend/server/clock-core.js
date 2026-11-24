@@ -231,43 +231,50 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
- * Close the user's active clock event in a team: set endTime and
- * accumulatedTime (span minus meal breaks), then close any running ticket
- * timers and auto-classify any open break. Returns the updated event doc, or
- * null when there was nothing open.
+ * Claim the end of the user's open clock event in a team for an automatic
+ * clock-out: set endTime and accumulatedTime (span minus meal breaks) and mark
+ * the event `autoClockoutPending`, so the rest (settleClosedClock, the notices)
+ * can be finished later if it is interrupted. Returns the claimed event, or
+ * null when nothing matched.
  *
  * `onlyIf` is a filter the event must still match at the moment it is closed.
- * The close is a single conditional write that claims the event before any
- * side effect runs, so a response saved meanwhile (e.g. Continue Working)
- * wins and nothing is closed or reported.
+ * The close is a single conditional write, so an answer saved meanwhile (e.g.
+ * Continue Working) or a manual clock-out wins and nothing is closed or reported.
  */
-export async function stopActiveClock(userId, teamId, now = Date.now(), onlyIf = {}) {
+export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
   const filter = { userId, teamId, endTime: null, ...onlyIf };
   const event = await ClockEvents.findOneAsync(filter);
   if (!event) return null;
 
-  const eventId = event._id.toHexString();
   // An open break counts the same open or closed at `now` (classifyBreak), so
   // the total can be worked out before the event is claimed.
-  const breaks = await findBreaksForEvent(eventId);
+  const breaks = await findBreaksForEvent(event._id.toHexString());
   const shiftSpan = Math.floor((now - event.startTime) / 1000);
   const accumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
 
   const claimed = await ClockEvents.updateAsync(
     { ...filter, _id: event._id },
-    { $set: { endTime: now, accumulatedTime } }
+    { $set: { endTime: now, accumulatedTime, autoClockoutPending: true } }
   );
   if (claimed === 0) return null;
+  return ClockEvents.findOneAsync(event._id);
+}
 
-  // Close any running timer sessions for this user (mirrors clock.stop).
-  await closeAllForUser(userId, now);
+/**
+ * What closing a clock event leaves to do: end the user's running ticket timers
+ * and any open break at the event's endTime. Safe to run again.
+ */
+export async function settleClosedClock(event) {
+  await closeAllForUser(event.userId, event.endTime);
 
-  const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
+  const openBreak = await ClockBreaks.findOneAsync({
+    clockEventId: event._id.toHexString(),
+    endTime: null,
+  });
   if (openBreak) {
-    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+    const durationSeconds = Math.floor((event.endTime - openBreak.startTime) / 1000);
     await ClockBreaks.updateAsync(openBreak._id, {
-      $set: { endTime: now, ...classifyBreak(durationSeconds) },
+      $set: { endTime: event.endTime, ...classifyBreak(durationSeconds) },
     });
   }
-  return ClockEvents.findOneAsync(event._id);
 }

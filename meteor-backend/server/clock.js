@@ -997,6 +997,20 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
   });
 
+  // An open break counts the same open or closed at `now` (classifyBreak), so the
+  // total is known before the session is claimed.
+  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const finalAccumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
+
+  // Claim the end of this session before anything else: the 8h auto clock-out
+  // may have closed it since it was read, and then neither its time may be
+  // overwritten nor the clock-out reported a second time.
+  const claimed = await ClockEvents.updateAsync(
+    { _id: event._id, endTime: null },
+    { $set: { endTime: now, accumulatedTime: finalAccumulatedTime } }
+  );
+  if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
+
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)
   );
@@ -1013,13 +1027,6 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   }
 
   const closedBreaks = await findBreaksForEvent(eventId);
-  const shiftSpan = Math.floor((now - event.startTime) / 1000);
-  const deducted = computeDeductedBreakSeconds(closedBreaks, now);
-  const finalAccumulatedTime = Math.max(0, shiftSpan - deducted);
-
-  await ClockEvents.updateAsync(event._id, {
-    $set: { endTime: now, accumulatedTime: finalAccumulatedTime },
-  });
   const updated = await ClockEvents.findOneAsync(event._id);
   const pub = toPublicClockEvent(updated, closedBreaks);
 

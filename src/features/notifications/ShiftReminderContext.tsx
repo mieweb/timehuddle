@@ -167,14 +167,18 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // The reminder is moot once its session ends (e.g. the 8h auto clock-out
   // fires while the modal is open), so dismiss it instead of leaving it up.
-  // The shared clock state also reads as "no session" when a refresh fails, so
-  // the server confirms the session really ended before the modal is dismissed.
+  // The shared clock state also reads as "no session" when a refresh fails, and
+  // holds only one session when the user has open ones in two teams, so the
+  // server is asked about the reminder's own team before the modal is dismissed.
   const pendingClockEventId = pendingNotif?.data?.clockEventId as string | undefined;
+  const pendingTeamId = pendingNotif?.data?.teamId as string | undefined;
   useEffect(() => {
     if (!pendingClockEventId || !clockReady || activeClockEvent?.id === pendingClockEventId) return;
     let cancelled = false;
-    clockApi
-      .getActive()
+    const sessionInTeam = pendingTeamId
+      ? clockApi.getStatus(pendingTeamId).then((status) => status?.event ?? null)
+      : clockApi.getActive();
+    sessionInTeam
       .then((active) => {
         if (!cancelled && active?.id !== pendingClockEventId) closeModal();
       })
@@ -184,7 +188,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       cancelled = true;
     };
-  }, [pendingClockEventId, activeClockEvent?.id, clockReady, closeModal]);
+  }, [pendingClockEventId, pendingTeamId, activeClockEvent?.id, clockReady, closeModal]);
 
   // The server has deleted this reminder; the inbox list drops it too.
   const dropReminderFromInbox = useCallback((id: string) => {

@@ -355,6 +355,33 @@ describe('auto clock-out notice', () => {
   );
 
   it(
+    'finishes a clock-out that was interrupted after the session was closed',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      await sendReminder(clockEventId);
+      expect((await wormhole('clock.pause', { teamId }, jwt)).ok).toBe(true);
+      await waitFor(() => jobOf('shift-missed-clockout', clockEventId), 'the 8h job');
+
+      // The state a run leaves if it stops right after claiming the session.
+      const db = await getDb();
+      await db.collection('clockevents').updateOne(
+        { _id: new ObjectId(clockEventId) },
+        { $set: { endTime: Date.now(), accumulatedTime: PAST_8H_MS / 1000, autoClockoutPending: true } },
+      );
+
+      await runJobNow('shift-missed-clockout', clockEventId);
+      await waitFor(
+        async () => !(await clockEvent(clockEventId))?.autoClockoutPending,
+        'the clock-out to be finished',
+      );
+      const breaks = await db.collection('clockbreaks').find({ clockEventId }).toArray();
+      expect(typeof breaks[0].endTime).toBe('number');
+      await expectSingleAutoClockOutNotice(clockEventId);
+    },
+    JOB_TIMEOUT,
+  );
+
+  it(
     'says nothing when the session had already ended',
     async () => {
       const clockEventId = await clockInPast8h();
@@ -368,8 +395,8 @@ describe('auto clock-out notice', () => {
 
       await runJobNow('shift-missed-clockout', clockEventId);
       await waitFor(
-        async () => (await jobOf('shift-missed-clockout', clockEventId))?.lastFinishedAt,
-        'the 8h job to run',
+        async () => !(await jobOf('shift-missed-clockout', clockEventId)),
+        'the 8h job to run and remove itself',
       );
       expect(await notificationsOf(clockEventId, 'auto-clock-out')).toHaveLength(0);
       expect(await adminClockOutNotices()).toHaveLength(0);

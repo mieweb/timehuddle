@@ -20,7 +20,7 @@ vi.mock('../../lib/ddp', () => ({
 }));
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
-  clockApi: { getActive: vi.fn() },
+  clockApi: { getActive: vi.fn(), getStatus: vi.fn() },
   notificationApi: {
     getInbox: vi.fn().mockResolvedValue([]),
     agreeClockout: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock('@ui/AppModal', () => ({
 const reminder = {
   id: 'notif-1',
   body: 'You are approaching 8 hours.',
-  data: { type: 'shift-end-reminder', clockEventId: 'event-1' },
+  data: { type: 'shift-end-reminder', clockEventId: 'event-1', teamId: 'team-1' },
 } as unknown as Notification;
 
 function renderProvider() {
@@ -80,7 +80,7 @@ describe('ShiftReminderProvider', () => {
   }
 
   it('closes the reminder when the server confirms its session ended', async () => {
-    vi.mocked(clockApi.getActive).mockResolvedValue(null);
+    vi.mocked(clockApi.getStatus).mockResolvedValue(null);
     const { rerender } = renderProvider();
     act(() => live.push?.(reminder));
     expect(screen.getByRole('dialog')).toBeTruthy();
@@ -95,7 +95,7 @@ describe('ShiftReminderProvider', () => {
   });
 
   it('keeps the reminder when the clock state is only missing because a refresh failed', async () => {
-    vi.mocked(clockApi.getActive).mockRejectedValue(new Error('offline'));
+    vi.mocked(clockApi.getStatus).mockRejectedValue(new Error('offline'));
     const { rerender } = renderProvider();
     act(() => live.push?.(reminder));
 
@@ -105,7 +105,24 @@ describe('ShiftReminderProvider', () => {
         <p>page</p>
       </ShiftReminderProvider>,
     );
-    await waitFor(() => expect(clockApi.getActive).toHaveBeenCalled());
+    await waitFor(() => expect(clockApi.getStatus).toHaveBeenCalledWith('team-1'));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('keeps the reminder when only another team’s session is open', async () => {
+    vi.mocked(clockApi.getStatus).mockResolvedValue({
+      event: { id: 'event-1' },
+    } as never);
+    const { rerender } = renderProvider();
+    act(() => live.push?.(reminder));
+
+    team.activeClockEvent = { id: 'event-other-team' };
+    rerender(
+      <ShiftReminderProvider>
+        <p>page</p>
+      </ShiftReminderProvider>,
+    );
+    await waitFor(() => expect(clockApi.getStatus).toHaveBeenCalledWith('team-1'));
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
