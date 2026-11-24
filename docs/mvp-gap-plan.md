@@ -380,15 +380,19 @@ post is not edited to show progress.
 - [x] Clock page while clocked in: today's plan stays in the **same
       `RichEditor`** the plan was written in — no separate component.
       **Clock in with a plan** turns every ticket in it into a **checklist
-      item**, with its **▶/⏸ button** in front and its **running timer below**
-      the button (`planTicketsAsChecklist` in `@timehuddle/plan-items`,
+      item**, with its **▶/⏸ button** in front and its time this session in a
+      **pill under the ticket** — ticking while it runs, paused otherwise (`planTicketsAsChecklist` in `@timehuddle/plan-items`,
       `src/features/clock/usePlanTaskEditor.tsx`). Teams with no wrap-up
       composer get the same editor read-only (`src/features/clock/TodayPlan.tsx`)
 - [x] A tick or a timer button saves at once and posts to Huddle; the
       checklist's text isn't how the plan changes mid-session
-- [ ] Mid-session the plan changes only by pinning: a ticket pinned while
+- [x] Mid-session the plan changes only by pinning: a ticket pinned while
       clocked in is added as a new checklist item (M2) and posts "Added … to
-      today's plan"
+      today's plan" (`addTickets` in `useSessionPlan`; the wrap-up editor
+      writes its line)
+- [x] Every ticket a plan gets — a Start session pin, the **Ticket** button, a
+      `#` pick in a checklist — is an unchecked checklist item
+      (`- [ ] [TH-12: …](/app/tickets/…)`, `planTicketItem`)
 - [x] At clock-out the wrap-up is the next edit of the plan, in the same
       editor: the wrap-up composer is that checklist, and it saves with the
       session's checks (`withChecks`). How the wrap-up is posted: M5
@@ -402,9 +406,8 @@ post is not edited to show progress.
       page or timer needs it (`@timehuddle/plan-items`)
 - [x] The `ActionPlan` card and its **Edit plan** button are gone, replaced by
       the editor above
-- [ ] The Pinned section reflects the same state — waits on M2
-      ([#884](https://github.com/mieweb/timehuddle/issues/884)); My Board's rows
-      already read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
+- [x] The Pinned section reflects the same state: its rows are My Board's
+      `TicketRow`, which read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
 - [x] Ticket items in the plan post (and on the Clock page) start that ticket's
       timer through `useTicketStart`, so the posted plan is the launching point
 - [x] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
@@ -419,8 +422,10 @@ post is not edited to show progress.
       longer edits it; showing the edit's time and author waits on #797
 - [x] Live timer `Badge` on the running ticket's row and under the Clock page's
       timer. On a ticket's page, the running ticket shows its time under its
-      timer button (`TimerControl`), as the plan editor will; My Board shows it as the
-      badge beside the title; in Huddle, the plan post has buttons only, and the
+      timer button (`TimerControl`). Today's plan on the Clock page and My Board's
+      rows show a ticket's time as the same `TimePill` (`src/ui/TimePill.tsx`, a
+      `Badge`): green and ticking while it runs, outlined and frozen while a plan
+      ticket waits; in Huddle, the plan post has buttons only, and the
       "Started …" / "Switched to …" updates are plain text
 - [x] Starting a ticket from the plan post that was taken out of today's plan
       asks first whether to add it back
