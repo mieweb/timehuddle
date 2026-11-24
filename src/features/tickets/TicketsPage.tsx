@@ -891,6 +891,12 @@ export const TicketsPage: React.FC = () => {
       const unpinning = pinnedEntries.length > 0;
       if (!unpinning && entryKeys.length === 0) return;
       setBoardLoadingKey(ticket.key);
+      // Shown at once, so a drag right after it starts from this pin list.
+      setPinnedKeys(
+        unpinning
+          ? pinnedKeys.filter((key) => !pinnedEntries.includes(key))
+          : [...pinnedKeys, entryKeys[0]],
+      );
       void queuePinWrite<unknown>(() =>
         unpinning
           ? Promise.all(pinnedEntries.map((key) => myBoardApi.unpin(ticketRefOf(key))))
@@ -902,7 +908,7 @@ export const TicketsPage: React.FC = () => {
           loadBoard();
         });
     },
-    [boardKeys, pinnedKeys, loadBoard, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast, queuePinWrite],
   );
 
   // A drag into, within or out of Pinned saves the whole pin list in its new

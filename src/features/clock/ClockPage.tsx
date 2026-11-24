@@ -626,7 +626,11 @@ export const ClockPage: React.FC = () => {
     void Promise.all(pendingTicketIds.split(',').map(read)).then((tickets) => {
       if (cancelled) return;
       const unread = tickets.filter((ticket) => !ticket).length;
-      if (unread) setComposerError(clockText.ticketsNotAdded(unread));
+      if (unread) {
+        setComposerError(clockText.ticketsNotAdded(unread));
+        // The notice shows in the open composer only.
+        setComposerExpanded(true);
+      }
       // Only into a plan for the ticket's own team: the server refuses
       // another team's ticket on this team's post.
       const items = tickets
