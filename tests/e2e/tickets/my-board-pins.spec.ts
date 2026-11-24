@@ -168,7 +168,13 @@ test.describe('My Board pins', () => {
     const stamp = Date.now();
     const [first, second] = [`E2E Rest A ${stamp}`, `E2E Rest B ${stamp}`];
     await onBoard(first, second);
-    const before = await tickets.activePanel.locator('[data-ticket-id]').allInnerTexts();
+    // The rows' order by ticket id: their text has relative times that can
+    // tick over ("Just now" → "1m ago") while the test waits.
+    const rowOrder = () =>
+      tickets.activePanel
+        .locator('[data-ticket-id]')
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-ticket-id')));
+    const before = await rowOrder();
 
     let saves = 0;
     page.on('request', (req) => {
@@ -180,7 +186,7 @@ test.describe('My Board pins', () => {
     await page.waitForTimeout(800);
 
     expect(saves).toBe(0);
-    expect(await tickets.activePanel.locator('[data-ticket-id]').allInnerTexts()).toEqual(before);
+    expect(await rowOrder()).toEqual(before);
   });
 
   test('drags a ticket from Rest to the top of Pinned, without opening it', async ({ page }) => {
