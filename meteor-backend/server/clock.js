@@ -625,17 +625,9 @@ Meteor.methods({
       if (modified === 0) throw new Meteor.Error('already-closed', 'Already clocked out');
       cancelClockJobsByName(clockEventId, 'shift-missed-clockout').catch(() => {});
     } else {
-      const breaks = await findBreaksForEvent(clockEventId);
-      const currentWorkSecs = computeWorkSeconds(event, breaks, Date.now());
       const modified = await ClockEvents.updateAsync(
         { _id: event._id, endTime: null },
-        {
-          $set: {
-            shiftReminderResponse: 'disagreed',
-            shiftAutoClockoutWorkSecs: null,
-            shiftNextReminderWorkSecs: currentWorkSecs + 2 * 3600,
-          },
-        }
+        { $set: { shiftReminderResponse: 'disagreed', shiftAutoClockoutWorkSecs: null } }
       );
       if (modified === 0) throw new Meteor.Error('already-closed', 'Already clocked out');
       cancelClockJobsByName(clockEventId, 'shift-missed-clockout').catch(() => {});

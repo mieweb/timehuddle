@@ -203,7 +203,6 @@ export function toPublicClockEvent(event, breaks) {
     endTime,
     shiftReminderResponse: event.shiftReminderResponse ?? null,
     shiftAutoClockoutWorkSecs: event.shiftAutoClockoutWorkSecs ?? null,
-    shiftNextReminderWorkSecs: event.shiftNextReminderWorkSecs ?? null,
   };
 }
 
