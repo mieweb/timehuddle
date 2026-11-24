@@ -312,6 +312,7 @@ describe('manual clock-out', () => {
 
 describe('finishing a clock-out held by another run', () => {
   const HELD_FOR_MS = 120_000;
+  const OTHER_RUN = 'other-run-token';
 
   it(
     'does not finish a manual clock-out another stop is finishing, until its lease ends',
@@ -326,12 +327,16 @@ describe('finishing a clock-out held by another run', () => {
             accumulatedTime: PAST_8H_MS / 1000,
             manualClockoutPending: true,
             closeLeaseUntil: Date.now() + HELD_FOR_MS,
+            closeLeaseToken: OTHER_RUN,
           },
         },
       );
 
       expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(false);
-      expect((await clockEvent(clockEventId))?.manualClockoutPending).toBe(true);
+      const held = await clockEvent(clockEventId);
+      expect(held?.manualClockoutPending).toBe(true);
+      // The run that owns the lease keeps it: a run that lost out leaves it alone.
+      expect(held?.closeLeaseToken).toBe(OTHER_RUN);
       expect(await adminClockOutNotices()).toHaveLength(0);
 
       await db
@@ -359,6 +364,7 @@ describe('finishing a clock-out held by another run', () => {
             accumulatedTime: PAST_8H_MS / 1000,
             autoClockoutPending: true,
             closeLeaseUntil: Date.now() + HELD_FOR_MS,
+            closeLeaseToken: OTHER_RUN,
           },
         },
       );
@@ -372,7 +378,9 @@ describe('finishing a clock-out held by another run', () => {
         },
         'the job to be put back',
       );
-      expect((await clockEvent(clockEventId))?.autoClockoutPending).toBe(true);
+      const held = await clockEvent(clockEventId);
+      expect(held?.autoClockoutPending).toBe(true);
+      expect(held?.closeLeaseToken).toBe(OTHER_RUN);
       expect(await notificationsOf(clockEventId, 'auto-clock-out')).toHaveLength(0);
 
       await db

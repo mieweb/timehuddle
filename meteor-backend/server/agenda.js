@@ -20,10 +20,12 @@ import { ClockEvents, rawDb, isValidId } from './collections';
 import {
   acquireCloseLease,
   claimAutoClockout,
+  completeClose,
   computeWorkSeconds,
   findBreaksForEvent,
   findSessionPost,
   releaseCloseLease,
+  renewCloseLease,
   settleClosedClock,
 } from './clock-core';
 import { clockOutUrl, createNotification, findTeam, notifyClockOut } from './notify-core';
@@ -94,12 +96,15 @@ function autoClockoutBody(event) {
  * `autoClockoutPending` until all of it is done, so a failure part-way is
  * picked up by the job's retry.
  */
-async function finishAutoClockOut(event) {
+async function finishAutoClockOut(event, token) {
   const clockEventId = event._id.toHexString();
   const { userId, teamId } = event;
+  const stillOwned = () => renewCloseLease(event._id, token);
+  await stillOwned();
   await settleClosedClock(event);
 
   const notices = rawDb().collection('notifications');
+  await stillOwned();
   await notices.deleteMany({
     userId,
     'data.clockEventId': clockEventId,
@@ -112,6 +117,7 @@ async function finishAutoClockOut(event) {
     'data.type': 'auto-clock-out',
   });
   if (!alreadyTold) {
+    await stillOwned();
     await notifyUser(userId, {
       title: 'Huddle — Auto Clock-Out',
       body: autoClockoutBody(event),
@@ -126,6 +132,7 @@ async function finishAutoClockOut(event) {
 
   const team = await findTeam(teamId);
   if (team) {
+    await stillOwned();
     await notifyClockOut({
       userId,
       teamId,
@@ -136,9 +143,7 @@ async function finishAutoClockOut(event) {
       auto: true,
     });
   }
-  await ClockEvents.updateAsync(event._id, {
-    $unset: { autoClockoutPending: '', closeLeaseUntil: '' },
-  });
+  await completeClose(event._id, token, 'autoClockoutPending');
 }
 
 /**
@@ -151,7 +156,7 @@ async function finishAutoClockOut(event) {
 async function runAutoClockOut(job, { onlyIf, now }) {
   const { clockEventId, userId, teamId } = job.attrs.data;
   const retryLater = () => job.schedule(new Date(Date.now() + AUTO_CLOCKOUT_RETRY_MS)).save();
-  let owned = null;
+  let owned = null; // { event, token } once this run owns finishing the session
   try {
     const pending = await ClockEvents.findOneAsync({
       _id: new ObjectId(clockEventId),
@@ -160,23 +165,25 @@ async function runAutoClockOut(job, { onlyIf, now }) {
     if (pending) {
       // Another run (this session's other 8h job, or an earlier try) may be
       // finishing it right now; only one may, so this one comes back later.
-      if (!(await acquireCloseLease(pending._id, 'autoClockoutPending'))) {
+      const token = await acquireCloseLease(pending._id, 'autoClockoutPending');
+      if (!token) {
         await retryLater();
         return;
       }
-      owned = pending;
+      owned = { event: pending, token };
     } else {
       // A fresh claim holds the lease from the same write.
-      owned = await claimAutoClockout(userId, teamId, now, {
+      const claimed = await claimAutoClockout(userId, teamId, now, {
         ...onlyIf,
         _id: new ObjectId(clockEventId),
       });
+      if (claimed) owned = { event: claimed, token: claimed.closeLeaseToken };
     }
-    if (owned) await finishAutoClockOut(owned);
+    if (owned) await finishAutoClockOut(owned.event, owned.token);
     await job.remove(); // one-shot: remove so it doesn't re-fire
   } catch (err) {
     console.error('[agenda] auto clock-out failed, will resume:', err);
-    if (owned) await releaseCloseLease(owned._id).catch(() => {});
+    if (owned) await releaseCloseLease(owned.event._id, owned.token).catch(() => {});
     await retryLater();
   }
 }

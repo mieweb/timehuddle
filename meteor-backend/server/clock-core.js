@@ -6,6 +6,8 @@
  * stays byte-for-byte consistent regardless of which backend (or job) writes
  * the close-out. No Meteor method/DDP context here — plain async helpers.
  */
+import { randomBytes } from 'crypto';
+
 import { ClockEvents, ClockBreaks, rawDb } from './collections';
 import { closeAllForUser } from './timer-core';
 
@@ -236,26 +238,57 @@ export function toPublicClockEvent(event, breaks) {
  */
 export const CLOSE_LEASE_MS = 60_000;
 
+/** A fresh owner token: a run acts on a lease only while its own token is on it. */
+export function newCloseLeaseToken() {
+  return randomBytes(12).toString('hex');
+}
+
 /**
  * Take over finishing a closed session whose `pendingFlag` is still set, unless
- * another run holds an unexpired lease on it. One write, so two runs never
- * both win. Returns whether this run now owns it.
+ * another run holds an unexpired lease on it. One write, so two runs never both
+ * win. Returns this run's owner token, or null when another run owns it.
  */
 export async function acquireCloseLease(eventId, pendingFlag) {
+  const token = newCloseLeaseToken();
   const taken = await ClockEvents.updateAsync(
     {
       _id: eventId,
       [pendingFlag]: true,
       $or: [{ closeLeaseUntil: { $exists: false } }, { closeLeaseUntil: { $lt: Date.now() } }],
     },
-    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS } }
+    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS, closeLeaseToken: token } }
   );
-  return taken === 1;
+  return taken === 1 ? token : null;
 }
 
-/** Hand back a lease after a failed run, so the next try need not wait for it to expire. */
-export function releaseCloseLease(eventId) {
-  return ClockEvents.updateAsync(eventId, { $unset: { closeLeaseUntil: '' } });
+/**
+ * Check this run still owns the lease, and extend it. Called before each side
+ * effect: a run that stalled past its lease, and was taken over, stops here
+ * (throws) instead of finishing alongside the run that replaced it.
+ */
+export async function renewCloseLease(eventId, token) {
+  const kept = await ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS } }
+  );
+  if (kept === 0) throw new Error('The clock-out lease was taken over by another run');
+}
+
+/** Hand back this run's lease after a failure; a lease another run now holds is left alone. */
+export function releaseCloseLease(eventId, token) {
+  return ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $unset: { closeLeaseUntil: '', closeLeaseToken: '' } }
+  );
+}
+
+/** Mark the clock-out finished, but only as the run that owns the lease. */
+export async function completeClose(eventId, token, pendingFlag) {
+  const done = await ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $unset: { [pendingFlag]: '', closeLeaseUntil: '', closeLeaseToken: '' } }
+  );
+  if (done === 0) throw new Error('The clock-out lease was taken over by another run');
 }
 
 /**
@@ -288,6 +321,7 @@ export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
         accumulatedTime,
         autoClockoutPending: true,
         closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+        closeLeaseToken: newCloseLeaseToken(),
       },
     }
   );

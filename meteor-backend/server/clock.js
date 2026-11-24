@@ -21,7 +21,10 @@ import { resolveSettings } from './settings';
 import {
   CLOSE_LEASE_MS,
   acquireCloseLease,
+  completeClose,
+  newCloseLeaseToken,
   releaseCloseLease,
+  renewCloseLease,
   toPublicClockEvent,
   breakSignature,
   classifyBreak,
@@ -1017,12 +1020,13 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // overwritten nor the clock-out reported a second time. The session stays
   // `manualClockoutPending` until the rest is done, so a failure part-way is
   // finished by the next try.
+  let token;
   if (interrupted) {
     // Another stop may be finishing it right now; only one may.
-    if (!(await acquireCloseLease(event._id, 'manualClockoutPending'))) {
-      throw new Meteor.Error('in-progress', 'This clock-out is already being finished');
-    }
+    token = await acquireCloseLease(event._id, 'manualClockoutPending');
+    if (!token) throw new Meteor.Error('in-progress', 'This clock-out is already being finished');
   } else {
+    token = newCloseLeaseToken();
     const claimed = await ClockEvents.updateAsync(
       { _id: event._id, endTime: null },
       {
@@ -1031,24 +1035,30 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
           accumulatedTime: finalAccumulatedTime,
           manualClockoutPending: true,
           closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+          closeLeaseToken: token,
         },
       }
     );
     if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
   }
 
-  // From here this stop owns finishing the session; a failure hands that back.
+  // From here this stop owns finishing the session, and checks it still does
+  // before each step; a failure hands the lease back.
+  const stillOwned = () => renewCloseLease(event._id, token);
   try {
+    await stillOwned();
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)
   );
 
   // Close the timer sessions that were running by then (not those of a shift
   // started since, when this finishes an interrupted clock-out).
+  await stillOwned();
   await closeAllForUser(userId, now, { startedBy: now });
 
   // Close any open break with auto-classification.
   if (openBreak) {
+    await stillOwned();
     const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
     await ClockBreaks.updateAsync(openBreak._id, {
       $set: { endTime: now, ...classifyBreak(durationSeconds) },
@@ -1060,6 +1070,7 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const pub = toPublicClockEvent(updated, closedBreaks);
 
   if (team) {
+    await stillOwned();
     const userName = await notifyClockOut({
       userId,
       teamId,
@@ -1082,12 +1093,10 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     });
   }
 
-  await ClockEvents.updateAsync(event._id, {
-    $unset: { manualClockoutPending: '', closeLeaseUntil: '' },
-  });
+  await completeClose(event._id, token, 'manualClockoutPending');
   return pub;
   } catch (err) {
-    await releaseCloseLease(event._id).catch(() => {});
+    await releaseCloseLease(event._id, token).catch(() => {});
     throw err;
   }
 }
