@@ -50,15 +50,23 @@ export function ticketLinkMarkdown(ticket: { id: string; name: string }): string
   return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
 }
 
-/** A plan line for a ticket: its link alone, no checkbox. */
+/** A plan line for a ticket: an unchecked checklist item holding its link. */
 export function planTicketItem(ticket: { id: string; name: string }): string {
-  return ticketLinkMarkdown(ticket);
+  return `- [ ] ${ticketLinkMarkdown(ticket)}`;
 }
 
-/** `text` with `item` added as its own last line (paragraph). */
+const LIST_ITEM = /^\s*[-*+]\s/;
+
+/**
+ * `text` with `item` added as its own last line: the next item of a list it
+ * ends with, else a paragraph of its own.
+ */
 export function appendPlanItem(text: string, item: string): string {
   const trimmed = text.replace(/\s+$/, '');
-  return trimmed ? `${trimmed}\n\n${item}` : item;
+  if (!trimmed) return item;
+  const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+  const sameList = LIST_ITEM.test(lastLine) && LIST_ITEM.test(item);
+  return `${trimmed}${sameList ? '\n' : '\n\n'}${item}`;
 }
 
 /** Ids of the tickets `text` links to, in order, each once. */
@@ -144,7 +152,7 @@ export function planMarkdown(items: readonly PlanItemText[]): string {
     .map((item) => {
       const box = `- [${item.checked ? 'x' : ' '}] `;
       return 'ticketId' in item
-        ? box + planTicketItem({ id: item.ticketId, name: item.title })
+        ? box + ticketLinkMarkdown({ id: item.ticketId, name: item.title })
         : box + item.text;
     })
     .join('\n');

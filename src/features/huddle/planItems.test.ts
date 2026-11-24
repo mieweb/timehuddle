@@ -15,8 +15,8 @@ import {
 describe('planItems', () => {
   const item = planTicketItem({ id: 'tkt-1', name: 'TH-1: Fix [beta] login' });
 
-  it('writes a ticket as a link to its page, no checkbox, its name escaped', () => {
-    expect(item).toBe('[TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
+  it('writes a ticket as an unchecked checklist item linking its page, its name escaped', () => {
+    expect(item).toBe('- [ ] [TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
   });
 
   it('appends plan tickets in order, each once, skipping ones the text already links', () => {
@@ -28,9 +28,9 @@ describe('planItems', () => {
     ];
     const ticket2 = planTicketItem(tickets[1]);
     const ticket3 = planTicketItem(tickets[2]);
-    expect(appendPlanTickets('', tickets)).toBe(`${item}\n\n${ticket2}\n\n${ticket3}`);
+    expect(appendPlanTickets('', tickets)).toBe(`${item}\n${ticket2}\n${ticket3}`);
     expect(appendPlanTickets(`Review\n\n${ticket2}`, tickets)).toBe(
-      `Review\n\n${ticket2}\n\n${item}\n\n${ticket3}`,
+      `Review\n\n${ticket2}\n${item}\n${ticket3}`,
     );
   });
 
@@ -51,10 +51,13 @@ describe('planItems', () => {
     expect(planTicketName(onRedmine, naming)).toBe('RMX-150: Fix login');
   });
 
-  it('adds a ticket on its own line', () => {
+  it('adds a ticket on its own line, continuing a list the plan ends with', () => {
     expect(appendPlanItem('', item)).toBe(item);
     expect(appendPlanItem('Today I will\n', item)).toBe(`Today I will\n\n${item}`);
-    expect(appendPlanItem('- [ ] Call Pam', item)).toBe(`- [ ] Call Pam\n\n${item}`);
+    expect(appendPlanItem('- [ ] Call Pam\n', item)).toBe(`- [ ] Call Pam\n${item}`);
+    expect(appendPlanItem('- [ ] Call Pam\n\nThen lunch', item)).toBe(
+      `- [ ] Call Pam\n\nThen lunch\n\n${item}`,
+    );
   });
 
   it('reads the linked ticket ids back, once each, skipping Redmine issues', () => {
