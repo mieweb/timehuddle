@@ -875,13 +875,23 @@ export const TicketsPage: React.FC = () => {
   );
 
   // Pin saves go one at a time: two in flight could each read the old order
-  // on the server and together leave an order neither asked for.
+  // on the server and together leave an order neither asked for. The board
+  // reloads once the last one settles: a reload between them would replace
+  // the pins shown, edits still waiting included, with a partial list.
   const pinWritesRef = useRef<Promise<unknown>>(Promise.resolve());
-  const queuePinWrite = useCallback(<T,>(write: () => Promise<T>): Promise<T> => {
-    const done = pinWritesRef.current.then(write);
-    pinWritesRef.current = done.catch(() => {});
-    return done;
-  }, []);
+  const pinWritesPending = useRef(0);
+  const queuePinWrite = useCallback(
+    <T,>(write: () => Promise<T>): Promise<T> => {
+      pinWritesPending.current += 1;
+      const done = pinWritesRef.current.then(write).finally(() => {
+        pinWritesPending.current -= 1;
+        if (pinWritesPending.current === 0) loadBoard();
+      });
+      pinWritesRef.current = done.catch(() => {});
+      return done;
+    },
+    [loadBoard],
+  );
 
   // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
   const handleTogglePin = useCallback(
@@ -903,16 +913,14 @@ export const TicketsPage: React.FC = () => {
           : myBoardApi.pin(ticketRefOf(entryKeys[0])),
       )
         .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
-        .finally(() => {
-          setBoardLoadingKey(null);
-          loadBoard();
-        });
+        .finally(() => setBoardLoadingKey(null));
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
   );
 
   // A drag into, within or out of Pinned saves the whole pin list in its new
-  // order, shown at once and put back from the server if the save fails.
+  // order, shown at once and put back from the server (the reload once the
+  // saves settle) if the save fails.
   const handleReorderPins = useCallback(
     (before: UnifiedTicket[], after: UnifiedTicket[]) => {
       const pinnedOf = (ticket: UnifiedTicket) =>
@@ -924,11 +932,11 @@ export const TicketsPage: React.FC = () => {
       const next = mergePinOrder(pinnedKeys, before.flatMap(pinnedOf), after.flatMap(keysOf));
       if (next.join() === pinnedKeys.join()) return;
       setPinnedKeys(next);
-      void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf)))
-        .catch(() => toast.error(boardText.reorderFailed))
-        .finally(loadBoard);
+      void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf))).catch(() =>
+        toast.error(boardText.reorderFailed),
+      );
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
   );
 
   // Clocked out with pins, Start session (or the first pin's ▶) writes them
