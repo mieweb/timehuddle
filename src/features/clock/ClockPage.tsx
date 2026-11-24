@@ -511,6 +511,29 @@ export const ClockPage: React.FC = () => {
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText, submittingMode]);
 
+  // A ticket that joins today's plan mid-session (pinned on My Board) gets a
+  // checklist line in the wrap-up, once per session: a line deleted here
+  // stays deleted. Waits for the seed, which already holds the posted plan.
+  const planLinesRef = useRef<{ session: string; ticketIds: Set<string> } | null>(null);
+  useEffect(() => {
+    const plan = sessionPlan.plan;
+    if (composerMode !== 'wrapup' || !seedSettled || submittingMode || !plan) return;
+    if (!textRef.current.trim()) return;
+    if (planLinesRef.current?.session !== plan.clockEventId) {
+      planLinesRef.current = { session: plan.clockEventId, ticketIds: new Set() };
+    }
+    const handled = planLinesRef.current.ticketIds;
+    const shown = new Set(ticketIdsInText(textRef.current));
+    const missing = plan.items.flatMap((item) =>
+      'ticketId' in item && !handled.has(item.ticketId)
+        ? [{ id: item.ticketId, name: item.title }]
+        : [],
+    );
+    for (const ticket of missing) handled.add(ticket.id);
+    const added = missing.filter((ticket) => !shown.has(ticket.id));
+    if (added.length) void editPlan((current) => appendPlanTickets(current, added));
+  }, [sessionPlan.plan, composerMode, seedSettled, submittingMode, editorKey]);
+
   // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
   // (clocks you out) — the server does both when the upload lands. Owned here,
   // not by a button: clocking in or out swaps the section's pill, while the

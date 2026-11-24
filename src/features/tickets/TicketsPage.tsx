@@ -177,7 +177,7 @@ export const TicketsPage: React.FC = () => {
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
   // Today's plan, as the Clock page shows it: each row says where it stands (M4).
-  const { plan: sessionPlan } = useSessionPlan();
+  const { plan: sessionPlan, teamId: planTeamId, addTickets: addToPlan } = useSessionPlan();
   const planRows = useMemo(
     () => todayPlanRows(sessionPlan, runningTicket),
     [sessionPlan, runningTicket],
@@ -901,6 +901,22 @@ export const TicketsPage: React.FC = () => {
     [loadBoard],
   );
 
+  // While clocked in, a new pin joins today's plan (#886): the open Huddle
+  // tickets of the session's team, since a plan holds its own team's only.
+  const addPinsToPlan = useCallback(
+    (tickets: UnifiedTicket[]) => {
+      if (!planTeamId) return;
+      const ids = tickets
+        .filter(
+          (t) => t.sourceId === 'huddle' && !t.status.isClosed && t.container?.id === planTeamId,
+        )
+        .map((t) => t.id);
+      if (!ids.length) return;
+      addToPlan(ids).catch(() => toast.error(boardText.addToPlanFailed));
+    },
+    [planTeamId, addToPlan, toast],
+  );
+
   // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
   const handleTogglePin = useCallback(
     (ticket: UnifiedTicket) => {
@@ -922,8 +938,9 @@ export const TicketsPage: React.FC = () => {
       )
         .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
         .finally(() => setBoardLoadingKey(null));
+      if (!unpinning) addPinsToPlan([ticket]);
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite, addPinsToPlan],
   );
 
   // A drag into, within or out of Pinned saves the whole pin list in its new
@@ -943,13 +960,16 @@ export const TicketsPage: React.FC = () => {
       void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf))).catch(() =>
         toast.error(boardText.reorderFailed),
       );
+      const newlyPinned = (ticket: UnifiedTicket) =>
+        keysOf(ticket).some((key) => next.includes(key) && !pinnedKeys.includes(key));
+      addPinsToPlan(after.filter(newlyPinned));
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite, addPinsToPlan],
   );
 
   // Clocked out with pins, Start session (or the first pin's ▶) writes them
   // all into today's plan and starts the first once the user clocks in.
-  // Mid-session pins are #886's.
+  // Mid-session pins join today's plan instead (addPinsToPlan).
   const startSessionButton =
     !activeClockEvent && sessionPins.length > 0 ? (
       <Button

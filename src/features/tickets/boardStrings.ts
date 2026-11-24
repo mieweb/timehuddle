@@ -33,6 +33,7 @@ export const boardText = {
   pinFailed: "Couldn't pin that ticket. Try again in a moment.",
   unpinFailed: "Couldn't unpin that ticket. Try again in a moment.",
   reorderFailed: "Couldn't save your pins. Try again in a moment.",
+  addToPlanFailed: "Pinned, but couldn't add it to today's plan. Try again in a moment.",
   pinnedSection: 'Pinned',
   restSection: 'Rest of my board',
   pinnedEmpty: 'Drag the tickets you plan to work on here, or pin them from their ⋮ menu.',

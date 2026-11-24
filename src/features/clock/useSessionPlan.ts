@@ -13,13 +13,20 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
-import { clockApi, type SessionPlan } from '../../lib/api';
+import { clockApi, type SessionPlan, type SessionPlanItem } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { requestHuddleRefresh } from '../../lib/huddleRefresh';
 import { useTeam } from '../../lib/TeamContext';
 import type { PlanItemInput } from '../huddle/planItems';
 
 const PLAN_CHANGED = 'plan:changed';
+
+/** The plan's items as an edit sends them: tickets by id, text with its check. */
+export function planInputOf(items: readonly SessionPlanItem[]): PlanItemInput[] {
+  return items.map((item) =>
+    'ticketId' in item ? { ticketId: item.ticketId } : { text: item.text, checked: item.checked },
+  );
+}
 const REFETCH_EVENTS = ['tickets:refetch', 'work:refetch'] as const;
 
 export interface SessionPlanState {
@@ -34,6 +41,8 @@ export interface SessionPlanState {
   setItems: (items: PlanItemInput[]) => Promise<void>;
   /** Check an item off by hand, or uncheck it. */
   setChecked: (itemId: string, checked: boolean) => Promise<void>;
+  /** Add these tickets after the plan's items, skipping any it holds. */
+  addTickets: (ticketIds: string[]) => Promise<void>;
 }
 
 export function useSessionPlan(): SessionPlanState {
@@ -129,5 +138,21 @@ export function useSessionPlan(): SessionPlanState {
     [teamId, afterChange],
   );
 
-  return { teamId, plan, loading, error, refetch, setItems, setChecked };
+  // Read fresh, not from `plan`: a stale copy would drop items added since.
+  const addTickets = useCallback(
+    async (ticketIds: string[]) => {
+      if (!teamId || !ticketIds.length) return;
+      const current = await clockApi.getPlan(teamId);
+      if (!current) return;
+      const held = new Set(
+        current.items.flatMap((item) => ('ticketId' in item ? [item.ticketId] : [])),
+      );
+      const added = [...new Set(ticketIds)].filter((id) => !held.has(id));
+      if (!added.length) return;
+      await setItems([...planInputOf(current.items), ...added.map((ticketId) => ({ ticketId }))]);
+    },
+    [teamId, setItems],
+  );
+
+  return { teamId, plan, loading, error, refetch, setItems, setChecked, addTickets };
 }

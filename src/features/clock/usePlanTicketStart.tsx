@@ -28,9 +28,8 @@ import { ticketKey } from '../tickets/sources';
 import { useMyBoardKeys } from '../tickets/useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { timerLabel } from '../timers/ticketTimerStrings';
-import type { PlanItemInput } from '../huddle/planItems';
 import { clockText } from './clockStrings';
-import type { SessionPlanState } from './useSessionPlan';
+import { planInputOf, type SessionPlanState } from './useSessionPlan';
 
 interface RemovedTicket {
   ticketId: string;
@@ -93,12 +92,7 @@ export function usePlanTicketStart(
     if (addBack && plan) {
       setAddingBack(true);
       try {
-        const items: PlanItemInput[] = plan.items.map((item) =>
-          'ticketId' in item
-            ? { ticketId: item.ticketId }
-            : { text: item.text, checked: item.checked },
-        );
-        await setItems([...items, { ticketId: ticket.ticketId }]);
+        await setItems([...planInputOf(plan.items), { ticketId: ticket.ticketId }]);
       } catch {
         setAddBackFailed(true);
         return;
