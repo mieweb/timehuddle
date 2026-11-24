@@ -121,3 +121,73 @@ describe('myBoard.addMany', () => {
     }
   });
 });
+
+describe('myBoard pins', () => {
+  const ref = (ticketId: string) => ({ sourceId: 'huddle', ticketId });
+  const call = (method: string, params: unknown) => wormhole<unknown>(method, params, jwt);
+  /** The pinned keys in pin order. */
+  const pins = async () => {
+    const res = await wormhole<{ entries: { sourceId: string; ticketId: string; pinOrder?: number }[] }>(
+      'myBoard.list',
+      {},
+      jwt,
+    );
+    expect(res.ok).toBe(true);
+    return res.result.entries
+      .filter((e) => typeof e.pinOrder === 'number')
+      .sort((a, b) => a.pinOrder! - b.pinOrder!)
+      .map((e) => e.ticketId);
+  };
+
+  let a: string;
+  let b: string;
+  let c: string;
+
+  beforeAll(async () => {
+    const db = await getDb();
+    await db.collection('my_board').deleteMany({ userId });
+    // Board rows only: the pin methods never look at the ticket behind one.
+    [a, b, c] = [1, 2, 3].map(() => new ObjectId().toHexString());
+    await db.collection('my_board').insertMany(
+      [a, b, c].map((ticketId) => ({ userId, sourceId: 'huddle', ticketId, addedAt: new Date() })),
+    );
+  });
+
+  it('pins after the pins already there, and leaves a re-pin where it is', async () => {
+    expect((await call('myBoard.pin', { ref: ref(b) })).ok).toBe(true);
+    expect((await call('myBoard.pin', { ref: ref(a) })).ok).toBe(true);
+    expect((await call('myBoard.pin', { ref: ref(b) })).ok).toBe(true);
+    expect(await pins()).toEqual([b, a]);
+  });
+
+  it('refuses to pin a ticket that is not on the board', async () => {
+    const res = await call('myBoard.pin', { ref: ref(new ObjectId().toHexString()) });
+    expect(res.ok).toBe(false);
+  });
+
+  it('sets the pins in order, unpinning the rest and skipping what is off the board', async () => {
+    await call('myBoard.pin', { ref: ref(a) });
+    const gone = new ObjectId().toHexString();
+    expect((await call('myBoard.setPins', { refs: [ref(c), ref(gone), ref(b)] })).ok).toBe(true);
+    expect(await pins()).toEqual([c, b]);
+    expect((await call('myBoard.setPins', { refs: [ref(a), ref(a)] })).ok).toBe(false);
+    expect(await pins()).toEqual([c, b]);
+    expect((await call('myBoard.setPins', { refs: [ref(b), ref(a), ref(c)] })).ok).toBe(true);
+    expect(await pins()).toEqual([b, a, c]);
+    // No refs unpins everything: the last pin dragged out of Pinned.
+    expect((await call('myBoard.setPins', { refs: [] })).ok).toBe(true);
+    expect(await pins()).toEqual([]);
+    expect((await call('myBoard.setPins', { refs: [ref(b), ref(a), ref(c)] })).ok).toBe(true);
+  });
+
+  it('unpins, keeping the ticket on the board', async () => {
+    expect((await call('myBoard.unpin', { ref: ref(a) })).ok).toBe(true);
+    expect(await pins()).toEqual([b, c]);
+    expect(await boardKeys()).toContain(`huddle:${a}`);
+  });
+
+  it('takes the pin away with the board entry', async () => {
+    expect((await call('myBoard.removeMany', { refs: [ref(b)] })).ok).toBe(true);
+    expect(await pins()).toEqual([c]);
+  });
+});

@@ -33,7 +33,7 @@ import {
   DropdownSeparator,
   Tooltip,
 } from '@mieweb/ui';
-import { CircleUser, ClipboardCopy, ClipboardX } from 'lucide-react';
+import { CircleUser, ClipboardCopy, ClipboardX, Pin, PinOff } from 'lucide-react';
 import React, { useCallback } from 'react';
 
 import { timeAgo } from '../../lib/date';
@@ -75,6 +75,10 @@ export interface TicketRowProps {
   onToggleBoard: (ticket: UnifiedTicket) => void;
   /** On My Board every row is on it, so the row's own board button is left out; the menu still has it. */
   hideBoardButton?: boolean;
+  /** Whether the ticket is among My Board's pins. */
+  pinned?: boolean;
+  /** Offered on My Board only: puts the ticket in Pinned, or back in the rest (#884). */
+  onTogglePin?: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -128,6 +132,8 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   boardLoading,
   onToggleBoard,
   hideBoardButton = false,
+  pinned = false,
+  onTogglePin,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -330,6 +336,21 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           >
             {onBoard ? boardText.remove : boardText.add}
           </DropdownItem>
+          {onTogglePin && onBoard && (
+            <DropdownItem
+              icon={
+                pinned ? (
+                  <PinOff className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" aria-hidden="true" />
+                )
+              }
+              disabled={boardLoading}
+              onClick={() => onTogglePin(ticket)}
+            >
+              {pinned ? boardText.unpin : boardText.pin}
+            </DropdownItem>
+          )}
           {capabilities.openExternal && externalUrl && (
             <DropdownItem icon={<FontAwesomeIcon icon={faExternalLink} />} onClick={openExternal}>
               {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}

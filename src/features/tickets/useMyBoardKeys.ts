@@ -10,13 +10,24 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { myBoardApi } from '../../lib/api';
+import { myBoardApi, type MyBoardEntry } from '../../lib/api';
 
 const keyOf = (entry: { sourceId: string; ticketId: string }) =>
   `${entry.sourceId}:${entry.ticketId}`;
 
+/** The pinned entries' keys, in pin order. */
+const pinnedInOrder = (entries: MyBoardEntry[]): string[] =>
+  entries
+    .filter((e) => typeof e.pinOrder === 'number')
+    .sort((a, b) => a.pinOrder! - b.pinOrder!)
+    .map(keyOf);
+
 export interface MyBoardKeys {
   boardKeys: Set<string>;
+  /** The board's pinned entries, as keys, in the user's order (#884). */
+  pinnedKeys: string[];
+  /** For an optimistic update while a new pin order saves. */
+  setPinnedKeys: React.Dispatch<React.SetStateAction<string[]>>;
   /** For optimistic updates after a move to or from the board. */
   setBoardKeys: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** Huddle board entries the server says the user can no longer see. */
@@ -39,6 +50,7 @@ export interface MyBoardKeys {
 
 export function useMyBoardKeys(userId: string | null): MyBoardKeys {
   const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
   const [unavailableHuddleKeys, setUnavailableHuddleKeys] = useState<Set<string>>(new Set());
   const [boardLoaded, setBoardLoaded] = useState(false);
   const [boardKnown, setBoardKnown] = useState(false);
@@ -55,6 +67,7 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
       .then((entries) => {
         if (read !== latestRead.current) return;
         setBoardKeys(new Set(entries.map(keyOf)));
+        setPinnedKeys(pinnedInOrder(entries));
         setUnavailableHuddleKeys(new Set(entries.filter((e) => e.unavailable).map(keyOf)));
         setBoardKnown(true);
       })
@@ -70,6 +83,7 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
     if (loadedFor.current !== userId) {
       loadedFor.current = userId;
       setBoardKeys(new Set());
+      setPinnedKeys([]);
       setUnavailableHuddleKeys(new Set());
       setBoardLoaded(false);
       setBoardKnown(false);
@@ -79,5 +93,14 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
     return () => window.removeEventListener('tickets:refetch', loadBoard);
   }, [loadBoard, userId]);
 
-  return { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown };
+  return {
+    boardKeys,
+    pinnedKeys,
+    setPinnedKeys,
+    setBoardKeys,
+    unavailableHuddleKeys,
+    loadBoard,
+    boardLoaded,
+    boardKnown,
+  };
 }

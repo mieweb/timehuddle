@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendPlanItem,
+  appendPlanTickets,
   editedTicketIds,
   planTicketItem,
   planTicketName,
@@ -13,6 +14,21 @@ describe('planItems', () => {
 
   it('writes a ticket as a link to its page, no checkbox, its name escaped', () => {
     expect(item).toBe('[TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
+  });
+
+  it('appends plan tickets in order, each once, skipping ones the text already links', () => {
+    const tickets = [
+      { id: 'tkt-1', name: 'TH-1: Fix [beta] login' },
+      { id: 'tkt-2', name: 'TH-2: Docs' },
+      { id: 'tkt-3', name: 'TH-3: Tests' },
+      { id: 'tkt-2', name: 'TH-2: Docs' },
+    ];
+    const ticket2 = planTicketItem(tickets[1]);
+    const ticket3 = planTicketItem(tickets[2]);
+    expect(appendPlanTickets('', tickets)).toBe(`${item}\n\n${ticket2}\n\n${ticket3}`);
+    expect(appendPlanTickets(`Review\n\n${ticket2}`, tickets)).toBe(
+      `Review\n\n${ticket2}\n\n${item}\n\n${ticket3}`,
+    );
   });
 
   it('names a ticket by the ID My Board shows: its outside one, else its own', () => {

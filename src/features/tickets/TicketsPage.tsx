@@ -26,8 +26,8 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import { Binoculars, CheckCheck, Plus, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Binoculars, CheckCheck, Play, Plus, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -57,6 +57,8 @@ import {
   starterText,
   useAssignedNotice,
 } from './assignedStarter';
+import { boardText } from './boardStrings';
+import { mergePinOrder, splitPinned } from './pinnedSections';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -148,6 +150,7 @@ export const TicketsPage: React.FC = () => {
     teamsReady,
     selectedOrgId,
     organizations,
+    activeClockEvent,
   } = useTeam();
   // An organization owner also sees the teams they haven't joined; the board is
   // for the teams they work in, so only those load and show tickets here.
@@ -172,7 +175,12 @@ export const TicketsPage: React.FC = () => {
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
-  const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
+  const {
+    start: startTimer,
+    stop: stopTimer,
+    startSession,
+    busyKey: timerLoadingKey,
+  } = useTicketStart();
 
   // Stable key derived from sorted team IDs — effects below only rerun when the
   // actual set of teams changes, not on every new array reference.
@@ -387,8 +395,16 @@ export const TicketsPage: React.FC = () => {
 
   // My Board membership, as identity only. Emptied and reloaded when the
   // signed-in user changes: this page stays mounted, and opens on the board.
-  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown } =
-    useMyBoardKeys(userId);
+  const {
+    boardKeys,
+    pinnedKeys,
+    setPinnedKeys,
+    setBoardKeys,
+    unavailableHuddleKeys,
+    loadBoard,
+    boardLoaded,
+    boardKnown,
+  } = useMyBoardKeys(userId);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
   const boardLoading = ticketsLoading || !boardLoaded;
@@ -513,8 +529,37 @@ export const TicketsPage: React.FC = () => {
 
   // ── Ticket timers (started from either table and Redmine suggestions) ──
 
+  // The pins a session can start from: open, in the team being clocked into
+  // (a plan post holds its own team's tickets only), in pin order, whatever
+  // the board's filters show.
+  const sessionPins = useMemo(
+    () =>
+      splitPinned(boardTickets, pinnedKeys).pinned.filter(
+        (t) => !t.status.isClosed && t.sourceId === 'huddle' && t.container?.id === selectedTeamId,
+      ),
+    [boardTickets, pinnedKeys, selectedTeamId],
+  );
+  const beginSession = useCallback(() => {
+    const [first, ...rest] = sessionPins;
+    if (!first) return;
+    startSession(
+      {
+        kind: 'ticket',
+        ticket: first,
+        label: timerLabel(first.sourceId, first.id, first.title),
+        onBoard: true,
+      },
+      rest.map(({ sourceId, id }) => ({ sourceId, id })),
+    );
+  }, [sessionPins, startSession]);
+
   const handleToggleTimer = useCallback(
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
+      // Clocked out, the first pin's ▶ starts the session, the same as Start session.
+      if (!activeClockEvent && sessionPins[0]?.key === ticket.key) {
+        beginSession();
+        return Promise.resolve('clock-in');
+      }
       const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       // A bare issue is timed as the ticket carrying it (#736).
       const carrierKey =
@@ -540,7 +585,17 @@ export const TicketsPage: React.FC = () => {
         onBoard: isOnBoard(ticket, boardKeys),
       });
     },
-    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys, carrierByIssueId],
+    [
+      runningTicket,
+      startTimer,
+      stopTimer,
+      ticketByKey,
+      boardKeys,
+      carrierByIssueId,
+      activeClockEvent,
+      sessionPins,
+      beginSession,
+    ],
   );
 
   // A suggestion is a Redmine issue, not yet a table row: shape it the way the
@@ -819,6 +874,87 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, addToBoard, removeFromBoard],
   );
 
+  // Pin saves go one at a time: two in flight could each read the old order
+  // on the server and together leave an order neither asked for. The board
+  // reloads once the last one settles: a reload between them would replace
+  // the pins shown, edits still waiting included, with a partial list.
+  const pinWritesRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pinWritesPending = useRef(0);
+  const queuePinWrite = useCallback(
+    <T,>(write: () => Promise<T>): Promise<T> => {
+      pinWritesPending.current += 1;
+      const done = pinWritesRef.current.then(write).finally(() => {
+        pinWritesPending.current -= 1;
+        if (pinWritesPending.current === 0) loadBoard();
+      });
+      pinWritesRef.current = done.catch(() => {});
+      return done;
+    },
+    [loadBoard],
+  );
+
+  // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
+  const handleTogglePin = useCallback(
+    (ticket: UnifiedTicket) => {
+      const entryKeys = boardEntryKeys(ticket, boardKeys);
+      const pinnedEntries = entryKeys.filter((key) => pinnedKeys.includes(key));
+      const unpinning = pinnedEntries.length > 0;
+      if (!unpinning && entryKeys.length === 0) return;
+      setBoardLoadingKey(ticket.key);
+      // Shown at once, so a drag right after it starts from this pin list.
+      setPinnedKeys(
+        unpinning
+          ? pinnedKeys.filter((key) => !pinnedEntries.includes(key))
+          : [...pinnedKeys, entryKeys[0]],
+      );
+      void queuePinWrite<unknown>(() =>
+        unpinning
+          ? Promise.all(pinnedEntries.map((key) => myBoardApi.unpin(ticketRefOf(key))))
+          : myBoardApi.pin(ticketRefOf(entryKeys[0])),
+      )
+        .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
+        .finally(() => setBoardLoadingKey(null));
+    },
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+  );
+
+  // A drag into, within or out of Pinned saves the whole pin list in its new
+  // order, shown at once and put back from the server (the reload once the
+  // saves settle) if the save fails.
+  const handleReorderPins = useCallback(
+    (before: UnifiedTicket[], after: UnifiedTicket[]) => {
+      const pinnedOf = (ticket: UnifiedTicket) =>
+        boardEntryKeys(ticket, boardKeys).filter((key) => pinnedKeys.includes(key));
+      const keysOf = (ticket: UnifiedTicket) => {
+        const pinned = pinnedOf(ticket);
+        return pinned.length ? pinned : boardEntryKeys(ticket, boardKeys).slice(0, 1);
+      };
+      const next = mergePinOrder(pinnedKeys, before.flatMap(pinnedOf), after.flatMap(keysOf));
+      if (next.join() === pinnedKeys.join()) return;
+      setPinnedKeys(next);
+      void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf))).catch(() =>
+        toast.error(boardText.reorderFailed),
+      );
+    },
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+  );
+
+  // Clocked out with pins, Start session (or the first pin's ▶) writes them
+  // all into today's plan and starts the first once the user clocks in.
+  // Mid-session pins are #886's.
+  const startSessionButton =
+    !activeClockEvent && sessionPins.length > 0 ? (
+      <Button
+        size="sm"
+        className="rounded-full"
+        leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+        aria-label={boardText.startSessionLabel(sessionPins.length)}
+        onClick={beginSession}
+      >
+        {boardText.startSession}
+      </Button>
+    ) : null;
+
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
       (added) => added && ticketsView.clearSelection(),
@@ -1063,6 +1199,10 @@ export const TicketsPage: React.FC = () => {
             <TicketListPanel
               {...sharedListProps}
               view={boardView}
+              pinnedKeys={pinnedKeys}
+              onTogglePin={handleTogglePin}
+              onPinsReorder={handleReorderPins}
+              pinnedAction={startSessionButton}
               loading={boardLoading}
               hideBoardButton
               // Unresolvable board entries, announced politely.

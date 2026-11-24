@@ -78,12 +78,19 @@ export interface PendingTicketStart {
   request: TicketStartRequest;
   /** Where the user asked for it, to go back to once it has started. */
   returnTo: string;
+  /** More tickets for the plan, after the one being started: the rest of My Board's pins (#884). */
+  alsoPlanned?: TimerTicket[];
 }
 
 interface TicketStartContextValue {
   /** Start a timer, or open the clock-in prompt (`'clock-in'`) when clocked out. */
   start: (request: TicketStartRequest) => Promise<TicketTimerOutcome>;
   stop: (request: TicketStopRequest) => Promise<TicketTimerOutcome>;
+  /**
+   * Start the day from My Board's pins: open the plan composer with `first`
+   * and `alsoPlanned` written in, and start `first` once the user clocks in.
+   */
+  startSession: (first: TicketStartRequest, alsoPlanned: TimerTicket[]) => void;
   /** The ticket key being started or stopped right now, for a row's spinner. */
   busyKey: string | null;
   pending: PendingTicketStart | null;
@@ -346,10 +353,20 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const cancelPending = useCallback(() => setPendingStart(null), [setPendingStart]);
 
+  const startSession = useCallback(
+    (first: TicketStartRequest, alsoPlanned: TimerTicket[]) => {
+      setPendingStart({ request: first, returnTo: pathname, alsoPlanned });
+      navigate('/app/clock');
+    },
+    [pathname, navigate, setPendingStart],
+  );
+
   const planFirst = planGate.planMissing;
 
   return (
-    <TicketStartContext.Provider value={{ start, stop, busyKey, pending, cancelPending }}>
+    <TicketStartContext.Provider
+      value={{ start, stop, startSession, busyKey, pending, cancelPending }}
+    >
       {children}
 
       <AppModal
