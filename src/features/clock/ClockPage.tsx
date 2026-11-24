@@ -50,6 +50,7 @@ import { UPLOAD_TEXT } from '../huddle/uploadText';
 import type { TicketRef } from '../huddle/useTicketSelection';
 import {
   appendPlanItem,
+  appendPlanTickets,
   planTicketItem,
   planTicketName,
   ticketIdsInText,
@@ -307,7 +308,7 @@ export const ClockPage: React.FC = () => {
   // the `text` mirror can lag the last keystroke (onChange is asynchronous),
   // and reloading the editor from it would drop that edit. Read again if the
   // mirror moves while reading, so an edit made meanwhile isn't lost either.
-  const appendToPlan = async (item: string, skip?: (current: string) => boolean) => {
+  const editPlan = async (update: (current: string) => string) => {
     let current = textRef.current;
     for (let attempt = 0; attempt < 3; attempt++) {
       const before = textRef.current;
@@ -315,9 +316,10 @@ export const ClockPage: React.FC = () => {
       if (!aliveRef.current) return;
       if (textRef.current === before) break;
     }
-    setText(skip?.(current) ? current : appendPlanItem(current, item));
+    setText(update(current));
     setComposerExpanded(true);
   };
+  const appendToPlan = (item: string) => editPlan((current) => appendPlanItem(current, item));
 
   const handleTicketSelect = (ticket: TicketRef) => {
     void appendToPlan(planTicketItem({ id: ticket.id, name: planTicketName(ticket, gateTeam) }));
@@ -337,10 +339,13 @@ export const ClockPage: React.FC = () => {
   // wrap-up already satisfies it — and the plain Clock out button flashes in,
   // spinning, for the moment clock-out takes.
   const [submittingMode, setSubmittingMode] = useState<ComposerMode | null>(null);
+  // Start session (#884) clocks in with the pins as the plan, so it opens the
+  // plan composer even where the team doesn't require one.
+  const sessionFromPins = !!pendingStart?.alsoPlanned;
   const composerMode: ComposerMode | null =
     submittingMode ??
     (!isClockedIn
-      ? planMissing && isSelectedTeamMember
+      ? (planMissing || sessionFromPins) && isSelectedTeamMember
         ? 'plan'
         : null
       : wrapUpMissing
@@ -588,41 +593,43 @@ export const ClockPage: React.FC = () => {
   }, [composerMode, clearUploads]);
 
   // A ticket started while clocked out (#586) is written into the plan it's
-  // waiting for, so clocking in doesn't ask for more than that ticket.
-  const pendingTicketId =
-    composerMode === 'plan' &&
-    pendingStart?.request.kind === 'ticket' &&
-    pendingStart.request.ticket.sourceId === 'huddle'
-      ? pendingStart.request.ticket.id
-      : null;
-  // Written once per waiting ticket: deleting its line keeps it deleted, even
+  // waiting for, so clocking in doesn't ask for more than that ticket. Start
+  // session (#884) brings the rest of My Board's pins along, written after it.
+  const pendingTicketIds =
+    composerMode === 'plan' && pendingStart?.request.kind === 'ticket'
+      ? [pendingStart.request.ticket, ...(pendingStart.alsoPlanned ?? [])]
+          .filter((ticket) => ticket.sourceId === 'huddle')
+          .map((ticket) => ticket.id)
+          .join(',')
+      : '';
+  // Written once per waiting start: deleting a line keeps it deleted, even
   // when the effect re-runs (the team list reloading changes `gateTeam`).
   const writtenPendingRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!pendingTicketId) {
+    if (!pendingTicketIds) {
       writtenPendingRef.current = null;
       return;
     }
-    if (writtenPendingRef.current === pendingTicketId) return;
+    if (writtenPendingRef.current === pendingTicketIds) return;
     let cancelled = false;
-    ticketApi
-      .getTicket(pendingTicketId)
-      .then((ticket) => {
-        // Only into a plan for the ticket's own team: the server refuses
-        // another team's ticket on this team's post.
-        if (cancelled || ticket.teamId !== gateTeamId) return;
-        const item = planTicketItem({
-          id: ticket.id,
-          name: planTicketName(ticket, gateTeam),
-        });
-        writtenPendingRef.current = pendingTicketId;
-        void appendToPlan(item, (current) => ticketIdsInText(current).includes(ticket.id));
-      })
-      .catch(() => {});
+    void Promise.all(
+      pendingTicketIds.split(',').map((id) => ticketApi.getTicket(id).catch(() => null)),
+    ).then((tickets) => {
+      if (cancelled) return;
+      // Only into a plan for the ticket's own team: the server refuses
+      // another team's ticket on this team's post.
+      const items = tickets
+        .filter((ticket) => ticket?.teamId === gateTeamId)
+        .map((ticket) => ({ id: ticket!.id, name: planTicketName(ticket!, gateTeam) }));
+      if (!items.length) return;
+      writtenPendingRef.current = pendingTicketIds;
+      focusEditorOnMountRef.current = true;
+      void editPlan((current) => appendPlanTickets(current, items));
+    });
     return () => {
       cancelled = true;
     };
-  }, [pendingTicketId, gateTeam, gateTeamId]);
+  }, [pendingTicketIds, gateTeam, gateTeamId]);
 
   const showEditor = composerExpanded || !!text.trim() || uploads.items.length > 0;
   // Something to post: words, or a file on its own (a screenshot, say).

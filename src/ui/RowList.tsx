@@ -19,6 +19,7 @@
 import {
   Badge,
   Button,
+  ButtonGroup,
   cn,
   ListView,
   ReorderableList,
@@ -158,6 +159,8 @@ export interface RowListSection<T> {
    * of it: a row moved within it goes back to its place.
    */
   sorted?: boolean;
+  /** A button at the end of the heading, beside its fold button, e.g. Pinned's Start session. */
+  action?: React.ReactNode;
 }
 
 /** A section's rows by id, in order, as a drag left them. */
@@ -417,39 +420,45 @@ function SectionHeading<T>({
       data-closed={closed || undefined}
       data-heading-index={index}
     >
-      <Button
-        variant="ghost"
-        // Stuck to the top, it takes you to its section; in place, it folds it.
-        aria-expanded={stuck ? undefined : !folded}
-        aria-label={
-          stuck
-            ? ROW_LIST_TEXT.goTo(section.label)
-            : folded
-              ? ROW_LIST_TEXT.unfold(section.label)
-              : ROW_LIST_TEXT.fold(section.label)
-        }
-        onClick={stuck ? jump : onToggle}
-        // A plain tap: none of Button's press-down shrink or fill.
-        className={cn(
-          'row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-[color,height] duration-200 hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent motion-reduce:transition-none dark:hover:bg-transparent dark:active:bg-transparent',
-          // Slimmer while it rides the top of the list, full size back in place;
-          // its item gains the difference as margin (mb-2), so nothing below
-          // moves. Fixed heights, so the next heading knows where to stack.
-          stuck ? 'h-8' : 'h-10',
-        )}
+      <ButtonGroup
+        orientation="horizontal"
+        className={cn('row-list-section-bar gap-2', section.action && 'pe-1')}
       >
-        <ChevronDown
+        <Button
+          variant="ghost"
+          // Stuck to the top, it takes you to its section; in place, it folds it.
+          aria-expanded={stuck ? undefined : !folded}
+          aria-label={
+            stuck
+              ? ROW_LIST_TEXT.goTo(section.label)
+              : folded
+                ? ROW_LIST_TEXT.unfold(section.label)
+                : ROW_LIST_TEXT.fold(section.label)
+          }
+          onClick={stuck ? jump : onToggle}
+          // A plain tap: none of Button's press-down shrink or fill.
           className={cn(
-            'h-4 w-4 shrink-0 transition-transform',
-            folded && '-rotate-90 rtl:rotate-90',
+            'row-list-section-trigger h-auto min-w-0 flex-1 justify-start gap-2 rounded-none px-(--row-list-inset) text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-[color,height] duration-200 hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent motion-reduce:transition-none dark:hover:bg-transparent dark:active:bg-transparent',
+            // Slimmer while it rides the top of the list, full size back in place;
+            // its item gains the difference as margin (mb-2), so nothing below
+            // moves. Fixed heights, so the next heading knows where to stack.
+            stuck ? 'h-8' : 'h-10',
           )}
-          aria-hidden="true"
-        />
-        <span className="row-list-section-label">{section.label}</span>
-        <Badge variant="secondary" size="sm">
-          {section.items.length}
-        </Badge>
-      </Button>
+        >
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 transition-transform',
+              folded && '-rotate-90 rtl:rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          <span className="row-list-section-label">{section.label}</span>
+          <Badge variant="secondary" size="sm">
+            {section.items.length}
+          </Badge>
+        </Button>
+        {section.action}
+      </ButtonGroup>
     </div>
   );
 }

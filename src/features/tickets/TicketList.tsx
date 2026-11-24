@@ -107,6 +107,8 @@ export interface TicketListProps {
    * Called with the Pinned rows before and after the drag.
    */
   onPinsReorder?: (before: UnifiedTicket[], after: UnifiedTicket[]) => void;
+  /** Shown at the end of the Pinned heading, e.g. Start session. */
+  pinnedAction?: React.ReactNode;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -150,6 +152,7 @@ export const TicketList: React.FC<TicketListProps> = ({
   pinnedKeys,
   onTogglePin,
   onPinsReorder,
+  pinnedAction,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -173,10 +176,11 @@ export const TicketList: React.FC<TicketListProps> = ({
         label: boardText.pinnedSection,
         items: pinned,
         emptyText: boardText.pinnedEmpty,
+        action: pinnedAction,
       },
       { id: 'my-board-rest', label: boardText.restSection, items: rest, sorted: true },
     ];
-  }, [tickets, pinnedKeys]);
+  }, [tickets, pinnedKeys, pinnedAction]);
   const handleSectionsReorder = React.useMemo(() => {
     if (!sections || !onPinsReorder) return undefined;
     return (order: RowListSectionOrder[]) => {

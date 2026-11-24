@@ -80,6 +80,18 @@ export function ticketIdsInText(text: string): string[] {
   return linkedIds(text, TICKET_LINK);
 }
 
+/** `text` with a plan line for each ticket it doesn't link yet, in the given order. */
+export function appendPlanTickets(text: string, tickets: { id: string; name: string }[]): string {
+  const linked = new Set(ticketIdsInText(text));
+  let plan = text;
+  for (const ticket of tickets) {
+    if (linked.has(ticket.id)) continue;
+    linked.add(ticket.id);
+    plan = appendPlanItem(plan, planTicketItem(ticket));
+  }
+  return plan;
+}
+
 /** In-app path of a person's profile (see src/ui/ROUTING.md). */
 export function profilePath(userId: string): string {
   return `/app/profile/${encodeURIComponent(userId)}`;

@@ -36,5 +36,11 @@ export const boardText = {
   pinnedSection: 'Pinned',
   restSection: 'Rest of my board',
   pinnedEmpty: 'Drag the tickets you plan to work on here, or pin them from their ⋮ menu.',
+  /** Writes the pins into today's plan and starts the first once clocked in. */
+  startSession: 'Start session',
+  startSessionLabel: (count: number) =>
+    count === 1
+      ? 'Start session: plan your pinned ticket and start it once you clock in'
+      : `Start session: plan your ${count} pinned tickets and start the first once you clock in`,
   columnHeading: 'My Board and timer',
 };

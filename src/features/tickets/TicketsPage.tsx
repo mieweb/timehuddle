@@ -26,7 +26,7 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import { Binoculars, CheckCheck, Plus, X } from 'lucide-react';
+import { Binoculars, CheckCheck, Play, Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -58,7 +58,7 @@ import {
   useAssignedNotice,
 } from './assignedStarter';
 import { boardText } from './boardStrings';
-import { mergePinOrder } from './pinnedSections';
+import { mergePinOrder, splitPinned } from './pinnedSections';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -150,6 +150,7 @@ export const TicketsPage: React.FC = () => {
     teamsReady,
     selectedOrgId,
     organizations,
+    activeClockEvent,
   } = useTeam();
   // An organization owner also sees the teams they haven't joined; the board is
   // for the teams they work in, so only those load and show tickets here.
@@ -174,7 +175,12 @@ export const TicketsPage: React.FC = () => {
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
-  const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
+  const {
+    start: startTimer,
+    stop: stopTimer,
+    startSession,
+    busyKey: timerLoadingKey,
+  } = useTicketStart();
 
   // Stable key derived from sorted team IDs — effects below only rerun when the
   // actual set of teams changes, not on every new array reference.
@@ -523,8 +529,37 @@ export const TicketsPage: React.FC = () => {
 
   // ── Ticket timers (started from either table and Redmine suggestions) ──
 
+  // The pins a session can start from: open, in the team being clocked into
+  // (a plan post holds its own team's tickets only), in pin order, whatever
+  // the board's filters show.
+  const sessionPins = useMemo(
+    () =>
+      splitPinned(boardTickets, pinnedKeys).pinned.filter(
+        (t) => !t.status.isClosed && t.sourceId === 'huddle' && t.container?.id === selectedTeamId,
+      ),
+    [boardTickets, pinnedKeys, selectedTeamId],
+  );
+  const beginSession = useCallback(() => {
+    const [first, ...rest] = sessionPins;
+    if (!first) return;
+    startSession(
+      {
+        kind: 'ticket',
+        ticket: first,
+        label: timerLabel(first.sourceId, first.id, first.title),
+        onBoard: true,
+      },
+      rest.map(({ sourceId, id }) => ({ sourceId, id })),
+    );
+  }, [sessionPins, startSession]);
+
   const handleToggleTimer = useCallback(
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
+      // Clocked out, the first pin's ▶ starts the session, the same as Start session.
+      if (!activeClockEvent && sessionPins[0]?.key === ticket.key) {
+        beginSession();
+        return Promise.resolve('clock-in');
+      }
       const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       // A bare issue is timed as the ticket carrying it (#736).
       const carrierKey =
@@ -550,7 +585,17 @@ export const TicketsPage: React.FC = () => {
         onBoard: isOnBoard(ticket, boardKeys),
       });
     },
-    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys, carrierByIssueId],
+    [
+      runningTicket,
+      startTimer,
+      stopTimer,
+      ticketByKey,
+      boardKeys,
+      carrierByIssueId,
+      activeClockEvent,
+      sessionPins,
+      beginSession,
+    ],
   );
 
   // A suggestion is a Redmine issue, not yet a table row: shape it the way the
@@ -872,6 +917,22 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast],
   );
 
+  // Clocked out with pins, Start session (or the first pin's ▶) writes them
+  // all into today's plan and starts the first once the user clocks in.
+  // Mid-session pins are #886's.
+  const startSessionButton =
+    !activeClockEvent && sessionPins.length > 0 ? (
+      <Button
+        size="sm"
+        className="rounded-full"
+        leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+        aria-label={boardText.startSessionLabel(sessionPins.length)}
+        onClick={beginSession}
+      >
+        {boardText.startSession}
+      </Button>
+    ) : null;
+
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
       (added) => added && ticketsView.clearSelection(),
@@ -1119,6 +1180,7 @@ export const TicketsPage: React.FC = () => {
               pinnedKeys={pinnedKeys}
               onTogglePin={handleTogglePin}
               onPinsReorder={handleReorderPins}
+              pinnedAction={startSessionButton}
               loading={boardLoading}
               hideBoardButton
               // Unresolvable board entries, announced politely.
