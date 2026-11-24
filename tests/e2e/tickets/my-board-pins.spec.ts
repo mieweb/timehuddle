@@ -127,12 +127,17 @@ test.describe('My Board pins', () => {
     await expect.poll(() => pinnedOrder(page, [first, second])).toEqual([first, second]);
     await expect(page.getByText(/^Pinned, position \d+ of \d+$/)).toBeAttached();
 
-    // Within Pinned: one step up puts it before `first`.
+    // Within Pinned: one step down puts `first` after `second`, and it's
+    // `first` that's announced, though a swap of neighbours reads the same
+    // whichever of them moved.
     saved = pinsSaved(page);
-    await listItem(tickets, second).focus();
-    await page.keyboard.press('Alt+ArrowUp');
+    await listItem(tickets, first).focus();
+    await page.keyboard.press('Alt+ArrowDown');
     await saved;
     await expect.poll(() => pinnedOrder(page, [first, second])).toEqual([second, first]);
+    await expect(
+      page.locator('.row-list-sections > [aria-live="polite"]:not([data-slot])'),
+    ).toHaveText('Pinned, position 2 of 2');
 
     // `first` is the last pin: one step down crosses the heading out of Pinned.
     saved = pinsSaved(page);
@@ -146,6 +151,17 @@ test.describe('My Board pins', () => {
     await tickets.switchToTab('my-board');
     await expect(tickets.rowByTitle(first)).toBeVisible();
     expect(await pinnedOrder(page, [first, second])).toEqual([second]);
+  });
+
+  test('a key press still works after a mouse press in the list', async ({ page }) => {
+    await onBoard(`E2E Keys After Mouse ${Date.now()}`);
+    const heading = page.getByRole('button', { name: /^(Fold|Unfold) Pinned$/ });
+    await heading.click();
+    await expect(heading).toHaveAccessibleName('Unfold Pinned');
+    // A keyboard click has no pointer position; it isn't the end of a drag.
+    await heading.focus();
+    await page.keyboard.press('Enter');
+    await expect(heading).toHaveAccessibleName('Fold Pinned');
   });
 
   test('a move within Rest of my board changes nothing: it keeps the sort', async ({ page }) => {

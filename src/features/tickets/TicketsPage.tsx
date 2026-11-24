@@ -27,7 +27,7 @@ import {
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
 import { Binoculars, CheckCheck, Play, Plus, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -874,6 +874,15 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, addToBoard, removeFromBoard],
   );
 
+  // Pin saves go one at a time: two in flight could each read the old order
+  // on the server and together leave an order neither asked for.
+  const pinWritesRef = useRef<Promise<unknown>>(Promise.resolve());
+  const queuePinWrite = useCallback(<T,>(write: () => Promise<T>): Promise<T> => {
+    const done = pinWritesRef.current.then(write);
+    pinWritesRef.current = done.catch(() => {});
+    return done;
+  }, []);
+
   // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
   const handleTogglePin = useCallback(
     (ticket: UnifiedTicket) => {
@@ -882,10 +891,10 @@ export const TicketsPage: React.FC = () => {
       const unpinning = pinnedEntries.length > 0;
       if (!unpinning && entryKeys.length === 0) return;
       setBoardLoadingKey(ticket.key);
-      void (
+      void queuePinWrite<unknown>(() =>
         unpinning
           ? Promise.all(pinnedEntries.map((key) => myBoardApi.unpin(ticketRefOf(key))))
-          : myBoardApi.pin(ticketRefOf(entryKeys[0]))
+          : myBoardApi.pin(ticketRefOf(entryKeys[0])),
       )
         .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
         .finally(() => {
@@ -893,7 +902,7 @@ export const TicketsPage: React.FC = () => {
           loadBoard();
         });
     },
-    [boardKeys, pinnedKeys, loadBoard, toast],
+    [boardKeys, pinnedKeys, loadBoard, toast, queuePinWrite],
   );
 
   // A drag into, within or out of Pinned saves the whole pin list in its new
@@ -909,12 +918,11 @@ export const TicketsPage: React.FC = () => {
       const next = mergePinOrder(pinnedKeys, before.flatMap(pinnedOf), after.flatMap(keysOf));
       if (next.join() === pinnedKeys.join()) return;
       setPinnedKeys(next);
-      void myBoardApi
-        .setPins(next.map(ticketRefOf))
+      void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf)))
         .catch(() => toast.error(boardText.reorderFailed))
         .finally(loadBoard);
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast],
+    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast, queuePinWrite],
   );
 
   // Clocked out with pins, Start session (or the first pin's ▶) writes them

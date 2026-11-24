@@ -308,6 +308,12 @@ function movedId(before: string[], after: string[], isHeading: (id: string) => b
   return before[lo] === after[lo + 1] ? after[lo] : before[lo];
 }
 
+/** The id of the list row `target` is in, from its `data-row-id`. */
+function rowIdAt(target: EventTarget | null): string | null {
+  const item = (target as Element | null)?.closest?.('[data-slot="reorderable-list-item"]');
+  return item?.querySelector('[data-row-id]')?.getAttribute('data-row-id') ?? null;
+}
+
 /** The nearest ancestor that scrolls vertically, or null for the page. */
 function scrollParent(el: HTMLElement | null): HTMLElement | null {
   for (let node = el?.parentElement; node; node = node.parentElement) {
@@ -534,11 +540,14 @@ function RowListSections<T>({
       const section = shown.find((s) => s.id === part.id)!;
       part.ids.push(...section.items.map(getId));
     }
-    const moved = movedId(
-      entries.map((e) => e.id),
-      ids,
-      (id) => fixedIds.has(id),
-    );
+    // The row the move started on; a swap of two neighbours reads the same
+    // whichever of them moved, so the orders alone can't say.
+    const started = startedOn.current;
+    const before = entries.map((e) => e.id);
+    const moved =
+      started && !fixedIds.has(started) && before.indexOf(started) !== ids.indexOf(started)
+        ? started
+        : movedId(before, ids, (id) => fixedIds.has(id));
     if (!moved) return;
     const from = shown.find((s) => s.items.some((item) => getId(item) === moved));
     const landed = order.find((part) => part.ids.includes(moved));
@@ -558,6 +567,7 @@ function RowListSections<T>({
 
   // A drag ends with a click on the row under the pointer; it isn't one.
   const pressedAt = React.useRef<{ x: number; y: number } | null>(null);
+  const startedOn = React.useRef<string | null>(null);
   const firstHeading = entries[0]?.id;
 
   return (
@@ -565,9 +575,18 @@ function RowListSections<T>({
       className="row-list-sections"
       onPointerDownCapture={(e) => {
         pressedAt.current = { x: e.clientX, y: e.clientY };
+        startedOn.current = rowIdAt(e.target);
+      }}
+      onKeyDownCapture={(e) => {
+        if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          startedOn.current = rowIdAt(e.target);
+        }
       }}
       onClickCapture={(e) => {
         const from = pressedAt.current;
+        pressedAt.current = null;
+        // A keyboard or assistive-technology click (detail 0) is never a drag's end.
+        if (e.detail === 0) return;
         if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 5) {
           e.preventDefault();
           e.stopPropagation();
@@ -604,6 +623,7 @@ function RowListSections<T>({
         }}
         renderItem={(entry) => (
           <div
+            data-row-id={entry.id}
             className={cn(
               CARD_PART,
               entry.kind === 'heading' ? [CARD_TOP, CARD_HEADING] : CARD_ROW,

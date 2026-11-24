@@ -616,10 +616,17 @@ export const ClockPage: React.FC = () => {
     }
     if (writtenPendingRef.current === pendingTicketIds) return;
     let cancelled = false;
-    void Promise.all(
-      pendingTicketIds.split(',').map((id) => ticketApi.getTicket(id).catch(() => null)),
-    ).then((tickets) => {
+    // One retry, so a blip doesn't leave a pin out of the plan; one still
+    // unread is reported rather than dropped without a word.
+    const read = (id: string) =>
+      ticketApi
+        .getTicket(id)
+        .catch(() => ticketApi.getTicket(id))
+        .catch(() => null);
+    void Promise.all(pendingTicketIds.split(',').map(read)).then((tickets) => {
       if (cancelled) return;
+      const unread = tickets.filter((ticket) => !ticket).length;
+      if (unread) setComposerError(clockText.ticketsNotAdded(unread));
       // Only into a plan for the ticket's own team: the server refuses
       // another team's ticket on this team's post.
       const items = tickets
