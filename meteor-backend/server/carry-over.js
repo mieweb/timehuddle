@@ -8,14 +8,10 @@
  * wrap-up all end a session through. An automatic clock-out (agenda's
  * `stopActiveClock`) leaves the pins as they are.
  */
-import { MongoInternals } from 'meteor/mongo';
-
-import { isValidId, rawDb } from './collections';
+import { rawDb } from './collections';
 import { releasedTicketIds } from './carry-over-core';
 import { releasePins } from './my-board';
-import { normalizeSource } from './ticket-refs';
-
-const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+import { huddleTicketOf } from './session-plan';
 
 /**
  * The Huddle ticket the user's running timer is on, or null. Read before
@@ -25,11 +21,7 @@ export async function runningHuddleTicketId(userId) {
   const running = await rawDb()
     .collection('timers')
     .findOne({ userId, endTime: null }, { projection: { workItemId: 1 } });
-  if (!isValidId(running?.workItemId)) return null;
-  const item = await rawDb()
-    .collection('workitems')
-    .findOne({ _id: new ObjectId(running.workItemId) }, { projection: { source: 1, ticketId: 1 } });
-  return item && normalizeSource(item.source) === 'huddle' ? item.ticketId : null;
+  return running ? huddleTicketOf(running.workItemId) : null;
 }
 
 /**
