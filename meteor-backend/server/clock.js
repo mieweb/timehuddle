@@ -1047,54 +1047,54 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const stillOwned = () => renewCloseLease(event._id, token);
   try {
     await stillOwned();
-  cancelClockJobs(eventId).catch((err) =>
-    console.error('[agenda] cancelClockJobs failed:', err)
-  );
+    cancelClockJobs(eventId).catch((err) =>
+      console.error('[agenda] cancelClockJobs failed:', err)
+    );
 
-  // Close the timer sessions that were running by then (not those of a shift
-  // started since, when this finishes an interrupted clock-out).
-  await stillOwned();
-  await closeAllForUser(userId, now, { startedBy: now });
-
-  // Close any open break with auto-classification.
-  if (openBreak) {
+    // Close the timer sessions that were running by then (not those of a shift
+    // started since, when this finishes an interrupted clock-out).
     await stillOwned();
-    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
-    await ClockBreaks.updateAsync(openBreak._id, {
-      $set: { endTime: now, ...classifyBreak(durationSeconds) },
-    });
-  }
+    await closeAllForUser(userId, now, { startedBy: now });
 
-  const closedBreaks = await findBreaksForEvent(eventId);
-  const updated = await ClockEvents.findOneAsync(event._id);
-  const pub = toPublicClockEvent(updated, closedBreaks);
+    // Close any open break with auto-classification.
+    if (openBreak) {
+      await stillOwned();
+      const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+      await ClockBreaks.updateAsync(openBreak._id, {
+        $set: { endTime: now, ...classifyBreak(durationSeconds) },
+      });
+    }
 
-  if (team) {
-    await stillOwned();
-    const userName = await notifyClockOut({
-      userId,
-      teamId,
-      clockEventId: eventId,
-      team,
-      accumulatedTime: pub.accumulatedTime,
-      sessionPost,
-    });
+    const closedBreaks = await findBreaksForEvent(eventId);
+    const updated = await ClockEvents.findOneAsync(event._id);
+    const pub = toPublicClockEvent(updated, closedBreaks);
 
-    void emitActivity({
-      userId,
-      teamId,
-      type: ActivityType.ClockOut,
-      actor: { id: userId, name: userName },
-      payload: {
+    if (team) {
+      await stillOwned();
+      const userName = await notifyClockOut({
+        userId,
         teamId,
-        teamName: team.name,
-        durationSeconds: pub.accumulatedTime ?? undefined,
-      },
-    });
-  }
+        clockEventId: eventId,
+        team,
+        accumulatedTime: pub.accumulatedTime,
+        sessionPost,
+      });
 
-  await completeClose(event._id, token, 'manualClockoutPending');
-  return pub;
+      void emitActivity({
+        userId,
+        teamId,
+        type: ActivityType.ClockOut,
+        actor: { id: userId, name: userName },
+        payload: {
+          teamId,
+          teamName: team.name,
+          durationSeconds: pub.accumulatedTime ?? undefined,
+        },
+      });
+    }
+
+    await completeClose(event._id, token, 'manualClockoutPending');
+    return pub;
   } catch (err) {
     await releaseCloseLease(event._id, token).catch(() => {});
     throw err;
