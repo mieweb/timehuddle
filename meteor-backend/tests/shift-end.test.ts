@@ -275,6 +275,41 @@ describe('Continue Working', () => {
   );
 });
 
+describe('manual clock-out', () => {
+  it(
+    'is finished by the next try if it stopped after closing the session, without repeating notices',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      expect((await wormhole('clock.pause', { teamId }, jwt)).ok).toBe(true);
+      const db = await getDb();
+      await db.collection('clockevents').updateOne(
+        { _id: new ObjectId(clockEventId) },
+        { $set: { endTime: Date.now(), accumulatedTime: PAST_8H_MS / 1000, manualClockoutPending: true } },
+      );
+      // The admin was already told before the run stopped.
+      await db.collection('notifications').insertOne({
+        userId: adminId,
+        title: 'Huddle',
+        body: 'earlier notice',
+        data: { type: 'clock-out', userId, clockEventId, teamId },
+        read: false,
+        createdAt: new Date(),
+      });
+
+      const res = await wormhole('clock.stop', { teamId }, jwt);
+      expect(res.ok).toBe(true);
+      const event = await clockEvent(clockEventId);
+      expect(event?.manualClockoutPending).toBeUndefined();
+      const breaks = await db.collection('clockbreaks').find({ clockEventId }).toArray();
+      expect(typeof breaks[0].endTime).toBe('number');
+      expect(await adminClockOutNotices()).toHaveLength(1);
+      // Done: a further try finds nothing to clock out of.
+      expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(false);
+    },
+    JOB_TIMEOUT,
+  );
+});
+
 describe('auto clock-out notice', () => {
   it(
     'tells the user when they agreed to be clocked out',
@@ -364,11 +399,17 @@ describe('auto clock-out notice', () => {
 
       // The state a run leaves if it stops right after claiming the session.
       const db = await getDb();
+      const closedAt = Date.now();
       await db.collection('clockevents').updateOne(
         { _id: new ObjectId(clockEventId) },
-        { $set: { endTime: Date.now(), accumulatedTime: PAST_8H_MS / 1000, autoClockoutPending: true } },
+        { $set: { endTime: closedAt, accumulatedTime: PAST_8H_MS / 1000, autoClockoutPending: true } },
       );
+      // A timer of a shift started since must be left running.
+      const laterTimer = await db
+        .collection('timers')
+        .insertOne({ userId, startTime: closedAt + 60_000, endTime: null });
 
+      
       await runJobNow('shift-missed-clockout', clockEventId);
       await waitFor(
         async () => !(await clockEvent(clockEventId))?.autoClockoutPending,
@@ -376,6 +417,8 @@ describe('auto clock-out notice', () => {
       );
       const breaks = await db.collection('clockbreaks').find({ clockEventId }).toArray();
       expect(typeof breaks[0].endTime).toBe('number');
+      expect((await db.collection('timers').findOne({ _id: laterTimer.insertedId }))?.endTime).toBeNull();
+      await db.collection('timers').deleteOne({ _id: laterTimer.insertedId });
       await expectSingleAutoClockOutNotice(clockEventId);
     },
     JOB_TIMEOUT,

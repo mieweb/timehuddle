@@ -127,6 +127,7 @@ async function finishAutoClockOut(event) {
     await notifyClockOut({
       userId,
       teamId,
+      clockEventId,
       team,
       accumulatedTime: event.accumulatedTime,
       sessionPost,

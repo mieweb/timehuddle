@@ -149,12 +149,34 @@ export function clockOutUrl({ userId, teamId, sessionPost }) {
 }
 
 /**
+ * Send a clock-out notice at most once per recipient and session, so finishing
+ * a clock-out that was interrupted (and so runs again) never repeats one.
+ */
+async function createClockOutNoticeOnce(notice) {
+  const sent = await notifications().findOne({
+    userId: notice.userId,
+    'data.type': notice.data.type,
+    'data.clockEventId': notice.data.clockEventId,
+  });
+  if (!sent) await createNotification(notice);
+}
+
+/**
  * Tell a team's admins (and, for a manual clock-out, the member) that a
  * member clocked out. Links to the session's Huddle post when it has one,
  * else the member's Work tab. An `auto` clock-out skips the member's own
- * notice: the 8h job sends its own. Returns the member's display name.
+ * notice: the 8h job sends its own. Each notice carries the session's
+ * `clockEventId` and goes out once. Returns the member's display name.
  */
-export async function notifyClockOut({ userId, teamId, team, accumulatedTime, sessionPost, auto = false }) {
+export async function notifyClockOut({
+  userId,
+  teamId,
+  clockEventId,
+  team,
+  accumulatedTime,
+  sessionPost,
+  auto = false,
+}) {
   const userName = await userDisplayName(userId);
   const totalSecs = accumulatedTime ?? 0;
   const h = Math.floor(totalSecs / 3600);
@@ -169,7 +191,7 @@ export async function notifyClockOut({ userId, teamId, team, accumulatedTime, se
     (team.admins ?? [])
       .filter((id) => id !== userId)
       .map((adminId) =>
-        createNotification({
+        createClockOutNoticeOnce({
           userId: adminId,
           title: 'Huddle',
           body: adminBody,
@@ -179,6 +201,7 @@ export async function notifyClockOut({ userId, teamId, team, accumulatedTime, se
             userName,
             teamName: team.name,
             teamId,
+            clockEventId,
             duration: durationText,
             url,
           },
@@ -187,11 +210,18 @@ export async function notifyClockOut({ userId, teamId, team, accumulatedTime, se
   );
 
   if (!auto) {
-    createNotification({
+    createClockOutNoticeOnce({
       userId,
       title: 'Huddle',
       body: `You clocked out of ${team.name} (${durationText})`,
-      data: { type: 'clock-out-self', teamName: team.name, teamId, duration: durationText, url },
+      data: {
+        type: 'clock-out-self',
+        teamName: team.name,
+        teamId,
+        clockEventId,
+        duration: durationText,
+        url,
+      },
     }).catch(() => {});
   }
   return userName;

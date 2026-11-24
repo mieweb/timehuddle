@@ -262,10 +262,11 @@ export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
 
 /**
  * What closing a clock event leaves to do: end the user's running ticket timers
- * and any open break at the event's endTime. Safe to run again.
+ * and any open break at the event's endTime. Safe to run again, and only timers
+ * that began by then are closed, so a shift started since keeps its own.
  */
 export async function settleClosedClock(event) {
-  await closeAllForUser(event.userId, event.endTime);
+  await closeAllForUser(event.userId, event.endTime, { startedBy: event.endTime });
 
   const openBreak = await ClockBreaks.findOneAsync({
     clockEventId: event._id.toHexString(),

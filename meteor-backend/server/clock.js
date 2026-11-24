@@ -955,11 +955,16 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // With `clockEventId`, only that session, and only while it is still open:
   // a wrap-up that lands after the person ended it by hand and started another
   // must not end the new one.
-  const event = await ClockEvents.findOneAsync(
-    clockEventId
-      ? { _id: new ObjectId(clockEventId), userId, teamId, endTime: null }
-      : { userId, teamId, endTime: null }
-  );
+  const sessionFilter = clockEventId
+    ? { _id: new ObjectId(clockEventId), userId, teamId }
+    : { userId, teamId };
+  const open = await ClockEvents.findOneAsync({ ...sessionFilter, endTime: null });
+  // A clock-out that stopped after it had closed the session (see the claim
+  // below) is finished by the next try instead of being refused as already closed.
+  const interrupted = open
+    ? null
+    : await ClockEvents.findOneAsync({ ...sessionFilter, manualClockoutPending: true });
+  const event = open ?? interrupted;
   if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
   const team = await findUserTeam(userId, teamId);
@@ -973,7 +978,7 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // Plan-first flow: when the team requires a plan, block clock-out until
   // THIS session's post has a wrap-up.
   const requiresPlan = team && (await resolveSettings(team)).requirePlanForClock.value;
-  if (requiresPlan && !sessionPost?.wrapUpAt) {
+  if (!interrupted && requiresPlan && !sessionPost?.wrapUpAt) {
     throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
   }
 
@@ -991,11 +996,13 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     .toArray();
   // When Clock out was pressed, but never before what it closes began or what
   // already ended in it (clockStopTime), so no duration comes out negative.
-  const now = clockStopTime(at, Date.now(), {
-    startTime: event.startTime,
-    breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
-    timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
-  });
+  const now =
+    interrupted?.endTime ??
+    clockStopTime(at, Date.now(), {
+      startTime: event.startTime,
+      breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
+      timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
+    });
 
   // An open break counts the same open or closed at `now` (classifyBreak), so the
   // total is known before the session is claimed.
@@ -1004,19 +1011,24 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
 
   // Claim the end of this session before anything else: the 8h auto clock-out
   // may have closed it since it was read, and then neither its time may be
-  // overwritten nor the clock-out reported a second time.
-  const claimed = await ClockEvents.updateAsync(
-    { _id: event._id, endTime: null },
-    { $set: { endTime: now, accumulatedTime: finalAccumulatedTime } }
-  );
-  if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
+  // overwritten nor the clock-out reported a second time. The session stays
+  // `manualClockoutPending` until the rest is done, so a failure part-way is
+  // finished by the next try.
+  if (!interrupted) {
+    const claimed = await ClockEvents.updateAsync(
+      { _id: event._id, endTime: null },
+      { $set: { endTime: now, accumulatedTime: finalAccumulatedTime, manualClockoutPending: true } }
+    );
+    if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
+  }
 
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)
   );
 
-  // Close any running timer sessions for this user.
-  await closeAllForUser(userId, now);
+  // Close the timer sessions that were running by then (not those of a shift
+  // started since, when this finishes an interrupted clock-out).
+  await closeAllForUser(userId, now, { startedBy: now });
 
   // Close any open break with auto-classification.
   if (openBreak) {
@@ -1034,6 +1046,7 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     const userName = await notifyClockOut({
       userId,
       teamId,
+      clockEventId: eventId,
       team,
       accumulatedTime: pub.accumulatedTime,
       sessionPost,
@@ -1052,5 +1065,6 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     });
   }
 
+  await ClockEvents.updateAsync(event._id, { $unset: { manualClockoutPending: '' } });
   return pub;
 }
