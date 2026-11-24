@@ -310,6 +310,85 @@ describe('manual clock-out', () => {
   );
 });
 
+describe('finishing a clock-out held by another run', () => {
+  const HELD_FOR_MS = 120_000;
+
+  it(
+    'does not finish a manual clock-out another stop is finishing, until its lease ends',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      const db = await getDb();
+      await db.collection('clockevents').updateOne(
+        { _id: new ObjectId(clockEventId) },
+        {
+          $set: {
+            endTime: Date.now(),
+            accumulatedTime: PAST_8H_MS / 1000,
+            manualClockoutPending: true,
+            closeLeaseUntil: Date.now() + HELD_FOR_MS,
+          },
+        },
+      );
+
+      expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(false);
+      expect((await clockEvent(clockEventId))?.manualClockoutPending).toBe(true);
+      expect(await adminClockOutNotices()).toHaveLength(0);
+
+      await db
+        .collection('clockevents')
+        .updateOne({ _id: new ObjectId(clockEventId) }, { $set: { closeLeaseUntil: Date.now() - 1 } });
+      expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(true);
+      expect((await clockEvent(clockEventId))?.manualClockoutPending).toBeUndefined();
+      expect(await adminClockOutNotices()).toHaveLength(1);
+    },
+    JOB_TIMEOUT,
+  );
+
+  it(
+    'does not finish an auto clock-out another job is finishing, but comes back for it',
+    async () => {
+      const clockEventId = await clockInPast8h();
+      await sendReminder(clockEventId);
+      await waitFor(() => jobOf('shift-missed-clockout', clockEventId), 'the 8h job');
+      const db = await getDb();
+      await db.collection('clockevents').updateOne(
+        { _id: new ObjectId(clockEventId) },
+        {
+          $set: {
+            endTime: Date.now(),
+            accumulatedTime: PAST_8H_MS / 1000,
+            autoClockoutPending: true,
+            closeLeaseUntil: Date.now() + HELD_FOR_MS,
+          },
+        },
+      );
+
+      await runJobNow('shift-missed-clockout', clockEventId);
+      // Deferred, not dropped: it is scheduled to come back.
+      await waitFor(
+        async () => {
+          const job = await jobOf('shift-missed-clockout', clockEventId);
+          return job && new Date(job.nextRunAt).getTime() > Date.now() + 30_000;
+        },
+        'the job to be put back',
+      );
+      expect((await clockEvent(clockEventId))?.autoClockoutPending).toBe(true);
+      expect(await notificationsOf(clockEventId, 'auto-clock-out')).toHaveLength(0);
+
+      await db
+        .collection('clockevents')
+        .updateOne({ _id: new ObjectId(clockEventId) }, { $set: { closeLeaseUntil: Date.now() - 1 } });
+      await runJobNow('shift-missed-clockout', clockEventId);
+      await waitFor(
+        async () => !(await clockEvent(clockEventId))?.autoClockoutPending,
+        'the clock-out to be finished',
+      );
+      await expectSingleAutoClockOutNotice(clockEventId);
+    },
+    JOB_TIMEOUT,
+  );
+});
+
 describe('auto clock-out notice', () => {
   it(
     'tells the user when they agreed to be clocked out',

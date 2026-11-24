@@ -231,6 +231,34 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
+ * How long one run owns finishing a closed session. A run that dies leaves the
+ * lease to expire, so another can take over; one that fails hands it back.
+ */
+export const CLOSE_LEASE_MS = 60_000;
+
+/**
+ * Take over finishing a closed session whose `pendingFlag` is still set, unless
+ * another run holds an unexpired lease on it. One write, so two runs never
+ * both win. Returns whether this run now owns it.
+ */
+export async function acquireCloseLease(eventId, pendingFlag) {
+  const taken = await ClockEvents.updateAsync(
+    {
+      _id: eventId,
+      [pendingFlag]: true,
+      $or: [{ closeLeaseUntil: { $exists: false } }, { closeLeaseUntil: { $lt: Date.now() } }],
+    },
+    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS } }
+  );
+  return taken === 1;
+}
+
+/** Hand back a lease after a failed run, so the next try need not wait for it to expire. */
+export function releaseCloseLease(eventId) {
+  return ClockEvents.updateAsync(eventId, { $unset: { closeLeaseUntil: '' } });
+}
+
+/**
  * Claim the end of the user's open clock event in a team for an automatic
  * clock-out: set endTime and accumulatedTime (span minus meal breaks) and mark
  * the event `autoClockoutPending`, so the rest (settleClosedClock, the notices)
@@ -254,7 +282,14 @@ export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
 
   const claimed = await ClockEvents.updateAsync(
     { ...filter, _id: event._id },
-    { $set: { endTime: now, accumulatedTime, autoClockoutPending: true } }
+    {
+      $set: {
+        endTime: now,
+        accumulatedTime,
+        autoClockoutPending: true,
+        closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+      },
+    }
   );
   if (claimed === 0) return null;
   return ClockEvents.findOneAsync(event._id);

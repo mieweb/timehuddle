@@ -19,6 +19,9 @@ import { requireIdentity, findUserById } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 import { resolveSettings } from './settings';
 import {
+  CLOSE_LEASE_MS,
+  acquireCloseLease,
+  releaseCloseLease,
   toPublicClockEvent,
   breakSignature,
   classifyBreak,
@@ -1014,14 +1017,28 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // overwritten nor the clock-out reported a second time. The session stays
   // `manualClockoutPending` until the rest is done, so a failure part-way is
   // finished by the next try.
-  if (!interrupted) {
+  if (interrupted) {
+    // Another stop may be finishing it right now; only one may.
+    if (!(await acquireCloseLease(event._id, 'manualClockoutPending'))) {
+      throw new Meteor.Error('in-progress', 'This clock-out is already being finished');
+    }
+  } else {
     const claimed = await ClockEvents.updateAsync(
       { _id: event._id, endTime: null },
-      { $set: { endTime: now, accumulatedTime: finalAccumulatedTime, manualClockoutPending: true } }
+      {
+        $set: {
+          endTime: now,
+          accumulatedTime: finalAccumulatedTime,
+          manualClockoutPending: true,
+          closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+        },
+      }
     );
     if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
   }
 
+  // From here this stop owns finishing the session; a failure hands that back.
+  try {
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)
   );
@@ -1065,6 +1082,12 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     });
   }
 
-  await ClockEvents.updateAsync(event._id, { $unset: { manualClockoutPending: '' } });
+  await ClockEvents.updateAsync(event._id, {
+    $unset: { manualClockoutPending: '', closeLeaseUntil: '' },
+  });
   return pub;
+  } catch (err) {
+    await releaseCloseLease(event._id).catch(() => {});
+    throw err;
+  }
 }

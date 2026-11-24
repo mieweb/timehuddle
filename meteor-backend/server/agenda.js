@@ -18,10 +18,12 @@ import { Agenda } from 'agenda';
 import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import {
+  acquireCloseLease,
   claimAutoClockout,
   computeWorkSeconds,
   findBreaksForEvent,
   findSessionPost,
+  releaseCloseLease,
   settleClosedClock,
 } from './clock-core';
 import { clockOutUrl, createNotification, findTeam, notifyClockOut } from './notify-core';
@@ -134,7 +136,9 @@ async function finishAutoClockOut(event) {
       auto: true,
     });
   }
-  await ClockEvents.updateAsync(event._id, { $unset: { autoClockoutPending: '' } });
+  await ClockEvents.updateAsync(event._id, {
+    $unset: { autoClockoutPending: '', closeLeaseUntil: '' },
+  });
 }
 
 /**
@@ -146,22 +150,34 @@ async function finishAutoClockOut(event) {
  */
 async function runAutoClockOut(job, { onlyIf, now }) {
   const { clockEventId, userId, teamId } = job.attrs.data;
+  const retryLater = () => job.schedule(new Date(Date.now() + AUTO_CLOCKOUT_RETRY_MS)).save();
+  let owned = null;
   try {
     const pending = await ClockEvents.findOneAsync({
       _id: new ObjectId(clockEventId),
       autoClockoutPending: true,
     });
-    const event =
-      pending ??
-      (await claimAutoClockout(userId, teamId, now, {
+    if (pending) {
+      // Another run (this session's other 8h job, or an earlier try) may be
+      // finishing it right now; only one may, so this one comes back later.
+      if (!(await acquireCloseLease(pending._id, 'autoClockoutPending'))) {
+        await retryLater();
+        return;
+      }
+      owned = pending;
+    } else {
+      // A fresh claim holds the lease from the same write.
+      owned = await claimAutoClockout(userId, teamId, now, {
         ...onlyIf,
         _id: new ObjectId(clockEventId),
-      }));
-    if (event) await finishAutoClockOut(event);
+      });
+    }
+    if (owned) await finishAutoClockOut(owned);
     await job.remove(); // one-shot: remove so it doesn't re-fire
   } catch (err) {
     console.error('[agenda] auto clock-out failed, will resume:', err);
-    await job.schedule(new Date(Date.now() + AUTO_CLOCKOUT_RETRY_MS)).save();
+    if (owned) await releaseCloseLease(owned._id).catch(() => {});
+    await retryLater();
   }
 }
 
