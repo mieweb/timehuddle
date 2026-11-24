@@ -442,12 +442,16 @@ post is not edited to show progress.
 
 **Owner:** Shubh · **Issue:** [#887](https://github.com/mieweb/timehuddle/issues/887)
 
-- [ ] On clock-out — with a plan or with Pulse — **checked** items unpin and return
-      to Rest of my board
-- [ ] **Unchecked** items (never started, or manually unchecked) stay pinned, in
-      order, for the next session
-- [ ] Read the plan state from the session data (M4), not from the posted
-      message
+- [x] On clock-out — with a plan or with Pulse — **checked** items unpin and return
+      to Rest of my board. Both end the session through `clockStop`, which runs
+      the carry-over (`server/carry-over.js`); an automatic clock-out leaves the
+      pins alone
+- [x] **Unchecked** items (never started, or manually unchecked) stay pinned, in
+      order, for the next session. So does the ticket still running at
+      clock-out, checked or not
+- [x] Read the plan state from the session data (M4's `clockevents.planItems`),
+      not from the posted message. A session without it unpins nothing, so this
+      takes effect once M4 merges
 - [ ] Post the wrap-up as its own message instead of replacing the plan text (see
       [Incidental Findings](#incidental-findings-on-main))
 - [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked

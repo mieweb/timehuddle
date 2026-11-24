@@ -414,6 +414,14 @@ export const TicketsPage: React.FC = () => {
     boardLoaded,
     boardKnown,
   } = useMyBoardKeys(userId);
+  // Clocking out unpins what the plan checked off (M5, #887), wherever it
+  // happened — the Clock page, or Pulse on the server — so read the pins again.
+  const clockEventId = activeClockEvent?.id ?? null;
+  const lastClockEventId = useRef(clockEventId);
+  useEffect(() => {
+    if (lastClockEventId.current && !clockEventId) loadBoard();
+    lastClockEventId.current = clockEventId;
+  }, [clockEventId, loadBoard]);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
   const boardLoading = ticketsLoading || !boardLoaded;
