@@ -2,7 +2,8 @@
  * My Board's Pinned section (#884): pin and unpin from a row's ⋮ menu, put
  * pins in order by drag or Alt+↑/↓, move tickets into and out of Pinned
  * across the "Rest of my board" heading, and the headings that stick to the
- * top as the list scrolls.
+ * top as the list scrolls; and Start session, which plans the pins and starts
+ * the first once the user clocks in.
  *
  * Both sections are one ReorderableList (src/ui/RowList.tsx), each heading a
  * fixed row in it; where a row sits relative to the "Rest of my board"
@@ -11,6 +12,7 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 import { TicketsPage } from '../pages/TicketsPage';
 import { getSessionToken } from './helpers';
 
@@ -226,5 +228,49 @@ test.describe('My Board pins', () => {
     await pinnedHeading.click();
     await expect(pinnedHeading).toHaveAccessibleName('Fold Pinned');
     await expect(tickets.rowByTitle(titles[0])).toBeInViewport();
+  });
+
+  test('Start session plans the pins in order and starts the first at clock-in', async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const clock = new ClockPage(page);
+    await clock.ensureClockedOut();
+    await tickets.goto();
+    const stamp = Date.now();
+    const titles = ['A', 'B', 'C'].map((n) => `E2E Session ${n} ${stamp}`);
+    await onBoard(...titles);
+    // Pinned in an order of their own, not the order they were made in.
+    const pinned = [titles[2], titles[0], titles[1]];
+    const ids = await Promise.all(
+      pinned.map((title) => tickets.rowByTitle(title).getAttribute('data-ticket-id')),
+    );
+    await setPins(page, request, ids as string[]);
+    await page.reload();
+    await tickets.switchToTab('my-board');
+    await expect.poll(() => pinnedOrder(page, titles)).toEqual(pinned);
+
+    await page.getByRole('button', { name: /^Start session/ }).click();
+    await expect(page).toHaveURL(/\/app\/clock(\?|$)/);
+    await expect(
+      page.getByText(`The timer on ${pinned[0]} starts when you clock in.`),
+    ).toBeVisible();
+    for (const title of pinned) await expect(clock.proseMirror).toContainText(title);
+
+    const posted = page.waitForRequest((req) => req.url().includes('/api/huddle_createPost'));
+    await clock.postPlanAndClockIn();
+    const plan = JSON.stringify((await posted).postDataJSON());
+    const places = pinned.map((title) => plan.indexOf(title));
+    expect(places.every((at) => at >= 0)).toBe(true);
+    expect(places).toEqual([...places].sort((a, b) => a - b));
+
+    // Back on the board, with the first pin's timer running.
+    await expect(page).toHaveURL(/\/app\/tickets(\?|$)/, { timeout: 15000 });
+    await tickets.switchToTab('my-board');
+    await expect(tickets.stopTimerButton(pinned[0])).toBeVisible({ timeout: 10000 });
+
+    await tickets.stopTimerButton(pinned[0]).click();
+    await clock.ensureClockedOut();
   });
 });
