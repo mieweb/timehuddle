@@ -47,9 +47,6 @@ export const boardText = {
   inProgress: 'In Progress',
   onBreak: 'On break',
   columnHeading: 'My Board and timer',
-  /** A row's place in today's plan while clocked in (M4). */
-  inTodaysPlan: "Today's plan",
-  checkedOff: 'Checked off',
   /** The live timer badge's name; its time follows. */
   timerRunning: 'Timer running',
   timerPaused: 'Timer paused',

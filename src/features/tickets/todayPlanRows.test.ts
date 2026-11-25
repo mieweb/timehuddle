@@ -39,15 +39,6 @@ const running = (key: string, startTime: number) =>
   }) as RunningTicket;
 
 describe('todayPlanRows (#886)', () => {
-  it('says which tickets are in the plan and which are checked off', () => {
-    const rows = todayPlanRows(plan, null);
-    expect([...rows.planned]).toEqual([
-      ['huddle:t1', false],
-      ['huddle:t2', true],
-    ]);
-    expect(rows.running).toBeNull();
-  });
-
   it('keeps each plan ticket’s time this session, for its paused pill', () => {
     expect([...todayPlanRows(plan, null).seconds]).toEqual([
       ['huddle:t1', 600],
