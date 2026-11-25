@@ -653,12 +653,10 @@ export const ClockPage: React.FC = () => {
   const wrapUpPulseAsked: PulseUpload = {
     ...wrapUpPulse,
     start: async () => {
-      if (
-        wrapUpPulse.status?.state === 'waiting' ||
-        (await runningCheck.confirmClockOut()).proceed
-      ) {
-        await wrapUpPulse.start();
-      }
+      if (wrapUpPulse.status?.state === 'waiting') return wrapUpPulse.start();
+      const answer = await runningCheck.confirmClockOut();
+      // Answered in the dialog, the tap that opened it is over.
+      if (answer.proceed) await wrapUpPulse.start({ afterTap: Boolean(answer.ticket) });
     },
     upload: async (file) => {
       if ((await runningCheck.confirmClockOut()).proceed) await wrapUpPulse.upload(file);
