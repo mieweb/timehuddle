@@ -230,7 +230,7 @@ and forth between tickets all day.
   **We don't want that UI, and we don't edit the Huddle post to drop an item.**
   The plan is written before clocking in. **Once clocked in it isn't edited by
   hand:** the only change mid-session is a ticket pinned then joining it (M2),
-  and the wrap-up at clock-out is the next edit. Huddle's ⋯ → **Edit message**
+  and the wrap-up at clock-out is its own post, starting from the plan (M5). Huddle's ⋯ → **Edit message**
   stays for radical rewrites only (see the
   [principle](#principle-the-huddle-timeline-is-append-only)).
 - **Pinning mid-session adds the ticket to today's plan** on the Board and Clock
@@ -393,9 +393,9 @@ post is not edited to show progress.
 - [x] Every ticket a plan gets — a Start session pin, the **Ticket** button, a
       `#` pick in a checklist — is an unchecked checklist item
       (`- [ ] [TH-12: …](/app/tickets/…)`, `planTicketItem`)
-- [x] At clock-out the wrap-up is the next edit of the plan, in the same
-      editor: the wrap-up composer is that checklist, and it saves with the
-      session's checks (`withChecks`). How the wrap-up is posted: M5
+- [x] At clock-out the wrap-up starts from the plan, in the same editor: the
+      wrap-up composer is that checklist, and it saves with the session's checks
+      (`withChecks`). How the wrap-up is posted: M5
 - [x] The ticket task item that draws ▶/⏸ and the running time needs no
       upstream change: TimeHuddle passes its own task item to `RichEditor`
       through `editorKits` (`src/features/clock/planTaskKit.ts`)
@@ -447,15 +447,24 @@ post is not edited to show progress.
       the carry-over (`server/carry-over.js`); an automatic clock-out leaves the
       pins alone
 - [x] **Unchecked** items (never started, or manually unchecked) stay pinned, in
-      order, for the next session. So does the ticket still running at
-      clock-out, checked or not
+      order, for the next session
+- [x] Clocking out while a plan ticket is still running asks first: **Check it
+      off** (it leaves Pinned) or **Keep for next session** (it stays,
+      unchecked). The Clock out button, the wrap-up and Pulse all ask
+      (`useRunningPlanTicketCheck`); the server then follows the plan's checks
 - [x] Read the plan state from the session data (M4's `clockevents.planItems`),
       not from the posted message. A session without it unpins nothing, so this
       takes effect once M4 merges
-- [ ] Post the wrap-up as its own message instead of replacing the plan text (see
-      [Incidental Findings](#incidental-findings-on-main))
+- [x] Post the wrap-up as its own message instead of replacing the plan text (see
+      [Incidental Findings](#incidental-findings-on-main)): today's checklist with
+      its final checks, plus what was written at clock-out. It notifies only the
+      people mentioned in it who the plan didn't already mention. A Pulse wrap-up
+      is its own post too, or joins the session's wrap-up post when there is one
+      (`appendWrapUp`)
 - [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked
-      item pinned, for both clock-out paths
+      item pinned, for both clock-out paths. Covered for the wrap-up by
+      `tests/e2e/tickets/carry-over.spec.ts`; Pulse shares the server path
+      (`meteor-backend/tests/carry-over.test.ts`) but isn't driven in a browser yet
 
 ### M6 — Actionable Toasts (Issue Later)
 
@@ -494,8 +503,9 @@ is how ticket videos are meant to show, and the design should keep it.
 1. **What happens to a checked-off ticket's status** — closed, or moved to another
    status? The MVP leaves status alone
    ([touch and go](#scene-7--checking-off-touch-and-go)).
-2. Is the ticket that is still running at clock-out checked off, like a switch, or
-   left unchecked and pinned?
+2. ~~Is the ticket that is still running at clock-out checked off, like a switch,
+   or left unchecked and pinned?~~ **Resolved (M5):** clocking out asks — check it
+   off, or keep it unchecked and pinned for the next session.
 3. Is **"beat"** user-facing wording?
 
 ## Incidental Findings on `main`
@@ -506,7 +516,7 @@ is how ticket videos are meant to show, and the design should keep it.
 - **The wrap-up replaces the plan.** Clocking out with a wrap-up overwrites the
   plan text in the session post ("(edited)", relabelled "Wrap-up"). This breaks
   the [principle](#principle-the-huddle-timeline-is-append-only): readers lose
-  the plan they read in the morning. Fixed in M5.
+  the plan they read in the morning. Fixed in M5: the wrap-up is its own post.
 - **Wrap-up composer opens with the plan text.** After clocking in, "What did you
   work on?" already contains the plan.
 

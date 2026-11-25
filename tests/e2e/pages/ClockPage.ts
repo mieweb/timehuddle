@@ -1,6 +1,8 @@
 import { expect, type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
+type RunningTicketAnswer = 'Check it off' | 'Keep for next session';
+
 /**
  * ClockPage - Page object for clock in/out
  */
@@ -19,6 +21,8 @@ export class ClockPage extends BasePage {
   // real rich-text editor (`.ProseMirror`).
   readonly collapsedPlanInput: Locator;
   readonly collapsedWrapUpInput: Locator;
+  /** Clocking out with a plan ticket running asks whether it's done (#887). */
+  readonly runningTicketDialog: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -45,6 +49,21 @@ export class ClockPage extends BasePage {
       .getByRole('button', { name: 'Huddle' });
     this.collapsedPlanInput = this.page.getByRole('textbox', { name: 'Write a plan' });
     this.collapsedWrapUpInput = this.page.getByRole('textbox', { name: 'Write a wrap-up' });
+    this.runningTicketDialog = this.page.getByRole('dialog', { name: 'Done with this ticket?' });
+  }
+
+  /**
+   * Answer the question a clock-out asks when a plan ticket is still running,
+   * if it asks: checked off it leaves Pinned, kept it stays for the next session.
+   */
+  async answerRunningTicket(answer: RunningTicketAnswer = 'Keep for next session') {
+    const asked = await this.runningTicketDialog
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    if (!asked) return;
+    await this.runningTicketDialog.getByRole('button', { name: answer }).click();
+    await this.runningTicketDialog.waitFor({ state: 'hidden', timeout: 10000 });
   }
 
   /**
@@ -137,9 +156,10 @@ export class ClockPage extends BasePage {
   /**
    * Post wrap-up and clock out
    */
-  async postWrapUpAndClockOut() {
+  async postWrapUpAndClockOut(running?: RunningTicketAnswer) {
     await this.postWrapUpAndClockOutButton.waitFor({ state: 'visible', timeout: 10000 });
     await this.postWrapUpAndClockOutButton.click();
+    await this.answerRunningTicket(running);
     // Wait for the page to update after clock out
     await this.page.waitForTimeout(1500);
   }
@@ -161,8 +181,9 @@ export class ClockPage extends BasePage {
   }
 
   /** Clock out (legacy method for non-plan-first flow) */
-  async clockOut() {
+  async clockOut(running?: RunningTicketAnswer) {
     await this.clockOutButton.click();
+    await this.answerRunningTicket(running);
     // Wait for the button to change to clock in
     await this.clockInButton.waitFor({ state: 'visible', timeout: 5000 });
   }

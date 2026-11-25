@@ -14,11 +14,6 @@ describe('releasedTicketIds', () => {
     expect(releasedTicketIds(plan)).toEqual(['a', 'c', 'd']);
   });
 
-  it('keeps the ticket running at clock-out, checked or not', () => {
-    const plan = [ticket('a', true), ticket('b', true)];
-    expect(releasedTicketIds(plan, 'b')).toEqual(['a']);
-  });
-
   it('ignores lines of text, and releases nothing without a plan', () => {
     expect(releasedTicketIds([{ id: 't', text: 'Review', checked: true }])).toEqual([]);
     expect(releasedTicketIds(undefined)).toEqual([]);

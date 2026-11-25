@@ -1,7 +1,8 @@
 /**
  * Clock-out carry-over (M5, #887): clocking out takes the tickets checked off
  * in today's plan out of My Board's Pinned, back to the rest; the unchecked
- * ones stay pinned, in order, and so does the one still running.
+ * ones stay pinned, in order. The one still running is asked about at
+ * clock-out, and kept here.
  *
  * Driven end to end: pins, Start session, Today's plan (M4) checkboxes, and a
  * clock-out with a wrap-up. Pulse ends a session through the same server
@@ -34,7 +35,7 @@ test.describe('Clock-out carry-over', () => {
   test.beforeAll(() => setSharedTeamPlanGate(true));
   test.afterAll(() => setSharedTeamPlanGate(false));
 
-  test('checked-off pins leave Pinned at clock-out; the rest, and the running one, stay', async ({
+  test('checked-off pins leave Pinned at clock-out; the rest, and a running one kept, stay', async ({
     page,
     request,
   }) => {
@@ -45,6 +46,7 @@ test.describe('Clock-out carry-over', () => {
     await clock.goto();
     if (await clock.clockOutButton.isVisible().catch(() => false)) {
       await clock.clockOutButton.click();
+      await clock.answerRunningTicket();
     } else {
       await clock.ensureClockedOut();
     }
@@ -90,8 +92,11 @@ test.describe('Clock-out carry-over', () => {
       await saved;
     }
 
+    // A still runs: clocking out asks, and keeping it unchecks it.
     await clock.typeWrapUp('Carry-over check');
-    await clock.postWrapUpAndClockOut();
+    await clock.postWrapUpAndClockOutButton.click();
+    await expect(clock.runningTicketDialog).toContainText(titles[0]);
+    await clock.answerRunningTicket('Keep for next session');
     await expect(clock.banner).toContainText(/Clocked out/i);
 
     await tickets.goto();

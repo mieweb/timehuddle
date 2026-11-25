@@ -167,7 +167,7 @@ function totalSeconds(time, now = Date.now()) {
 }
 
 /** A Huddle ticket's id from a work item, or null (a Redmine issue, a gone item). */
-export async function huddleTicketOf(workItemId) {
+async function huddleTicketOf(workItemId) {
   if (!isValidId(workItemId)) return null;
   const item = await rawDb()
     .collection('workitems')

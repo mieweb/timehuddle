@@ -96,11 +96,12 @@ afterAll(async () => {
 });
 
 describe('clock-out carry-over', () => {
-  it('unpins the checked-off tickets; the unchecked one and the running one stay pinned, in order', async () => {
+  it('unpins the checked-off tickets, the running one too; the unchecked ones stay pinned, in order', async () => {
     const db = await getDb();
     const sessionId = await clockIn();
-    // `d` is checked off but still being worked on at clock-out.
-    const workItem = { _id: new ObjectId(), userId, source: 'huddle', ticketId: ids.d, teamId };
+    // `c` is checked off and still being worked on at clock-out: the Clock
+    // page asked, and the person checked it off.
+    const workItem = { _id: new ObjectId(), userId, source: 'huddle', ticketId: ids.c, teamId };
     await db.collection('workitems').insertOne(workItem);
     await db.collection('timers').insertOne({
       userId,
@@ -117,7 +118,7 @@ describe('clock-out carry-over', () => {
             { id: 'p1', ticketId: ids.a, checked: true },
             { id: 'p2', ticketId: ids.b, checked: false },
             { id: 'p3', ticketId: ids.c, checked: true },
-            { id: 'p4', ticketId: ids.d, checked: true },
+            { id: 'p4', ticketId: ids.d, checked: false },
             { id: 'p5', text: 'Review notes', checked: true },
           ],
         },

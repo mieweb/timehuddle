@@ -28,6 +28,7 @@ test.describe("Today's plan in the editor", () => {
     await clock.goto();
     if (await clock.clockOutButton.isVisible().catch(() => false)) {
       await clock.clockOutButton.click();
+      await clock.answerRunningTicket();
     } else {
       await clock.ensureClockedOut();
     }

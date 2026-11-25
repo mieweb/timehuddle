@@ -50,7 +50,7 @@ import {
   notifyClockOut,
   userDisplayName,
 } from './notify-core';
-import { carryOverPins, runningHuddleTicketId } from './carry-over';
+import { carryOverPins } from './carry-over';
 import { endSnoozeUntilClockIn } from './notification-prefs';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
@@ -1058,9 +1058,6 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
       console.error('[agenda] cancelClockJobs failed:', err)
     );
 
-    // The ticket still being worked on stays pinned (carry-over, below).
-    const runningTicketId = await runningHuddleTicketId(userId, now).catch(() => null);
-
     // Close the timer sessions that were running by then (not those of a shift
     // started since, when this finishes an interrupted clock-out).
     await stillOwned();
@@ -1081,7 +1078,7 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
 
     // Checked-off plan items leave Pinned; the rest stay for the next session.
     await stillOwned();
-    await carryOverPins(userId, updated, runningTicketId);
+    await carryOverPins(userId, updated);
 
     if (team) {
       await stillOwned();
