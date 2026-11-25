@@ -10,7 +10,9 @@
  */
 import {
   Button,
+  Badge,
   ButtonGroup,
+  useMediaQuery,
   cn,
   Alert,
   AlertDescription,
@@ -510,6 +512,26 @@ export const TicketsPage: React.FC = () => {
   // dropdown (#736c).
   const [searchQuery, setSearchQuery] = useState('');
 
+  // On a phone the controls above the list fold away while it's scrolled down,
+  // so the list has the room; they're back at the top, and while searching.
+  // Fold past 48px, unfold under 8px: the list growing as they fold can't
+  // flip it back.
+  const phone = useMediaQuery('(max-width: 767px)');
+  const [listScrolled, setListScrolled] = useState(false);
+  const handleListScroll = useCallback((event: React.UIEvent) => {
+    const list = (event.target as Element).closest?.('.row-list-scroll');
+    if (!list) return;
+    const top = (event.target as Element).scrollTop;
+    setListScrolled((was) => (was ? top > 8 : top > 48));
+  }, []);
+  const headerFolded = phone && listScrolled && !searchQuery;
+  // Another tab's list starts at its top.
+  const [foldedFor, setFoldedFor] = useState(activeView);
+  if (foldedFor !== activeView) {
+    setFoldedFor(activeView);
+    setListScrolled(false);
+  }
+
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
   const [deleteRequest, setDeleteRequest] = useState<{ huddleIds: string[] } | null>(null);
@@ -975,26 +997,23 @@ export const TicketsPage: React.FC = () => {
   // slow green pulse while you work, still while on a break.
   const isPaused = !!activeClockEvent?.isPaused;
   const sessionAction = activeClockEvent ? (
-    <Button
+    <Badge
       variant="secondary"
       size="sm"
-      className="rounded-full"
-      leftIcon={
-        <span
-          aria-hidden="true"
-          className={cn(
-            'session-dot h-2 w-2 shrink-0 rounded-full',
-            isPaused
-              ? 'bg-muted-foreground'
-              : 'bg-success animate-[pulse_2.5s_ease-in-out_infinite] motion-reduce:animate-none',
-          )}
-        />
-      }
-      aria-label={boardText.sessionLabel(isPaused)}
-      onClick={() => navigate('/app/clock')}
+      role="status"
+      className="session-indicator inline-flex items-center gap-1.5 rounded-full"
     >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'session-dot h-2 w-2 shrink-0 rounded-full',
+          isPaused
+            ? 'bg-muted-foreground'
+            : 'bg-success animate-[pulse_1.5s_ease-in-out_infinite] motion-reduce:animate-none',
+        )}
+      />
       {isPaused ? boardText.onBreak : boardText.inProgress}
-    </Button>
+    </Badge>
   ) : sessionPins.length > 0 ? (
     <Button
       size="sm"
@@ -1149,10 +1168,17 @@ export const TicketsPage: React.FC = () => {
         <h1 className="sr-only">Tickets</h1>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="tickets-views flex min-h-0 flex-1 flex-col">
+          <div
+            className="tickets-views flex min-h-0 flex-1 flex-col"
+            onScrollCapture={handleListScroll}
+          >
             <div
               ref={switcherRef}
-              className="tickets-view-switcher mb-1.5 flex shrink-0 items-center justify-between gap-2"
+              inert={headerFolded}
+              className={cn(
+                'tickets-view-switcher flex shrink-0 items-center justify-between gap-2 overflow-hidden transition-[max-height,opacity,margin] duration-200 motion-reduce:transition-none',
+                headerFolded ? 'mb-0 max-h-0 opacity-0' : 'mb-1.5 max-h-16 opacity-100',
+              )}
             >
               <SegmentedSwitcher
                 name="tickets-view"
@@ -1180,7 +1206,15 @@ export const TicketsPage: React.FC = () => {
             {/* One toolbar for both ticket lists: it stays put when the tab changes.
               My Week is a timesheet, so it has none. */}
             {activeView !== 'week' && (
-              <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+              <div
+                inert={headerFolded}
+                className={cn(
+                  'tickets-toolbar sticky top-0 z-20 -mx-4 flex shrink-0 items-center gap-2 border-neutral-200 bg-neutral-50/95 px-4 backdrop-blur transition-[max-height,opacity,margin,padding] duration-200 supports-backdrop-filter:bg-neutral-50/80 motion-reduce:transition-none dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0',
+                  headerFolded
+                    ? 'mb-0 max-h-0 overflow-hidden border-b-0 py-0 opacity-0'
+                    : 'mb-3 max-h-24 border-b py-2 opacity-100',
+                )}
+              >
                 {newTicketButton}
 
                 <RedmineSuggestions
