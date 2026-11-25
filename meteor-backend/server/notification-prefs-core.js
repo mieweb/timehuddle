@@ -48,7 +48,7 @@ export const EVENTS = Object.freeze({
   huddleGroupMention: { types: ['huddle-group-mention'], desktop: true, phone: false },
   ticketAssigned: { types: ['ticket-assigned'], desktop: true, phone: true },
   ticketLink: { types: ['ticket-link-changed'], desktop: true, phone: true },
-  shiftEnd: { types: ['shift-end-reminder'], desktop: true, phone: true },
+  shiftEnd: { types: ['shift-end-reminder', 'auto-clock-out'], desktop: true, phone: true },
   timesheetRequest: { types: ['timesheet-change-request'], desktop: true, phone: true },
   teamClock: {
     types: ['clock-in', 'clock-out', 'clock-session-changed'],
@@ -100,8 +100,16 @@ export function prefKeyForType(type) {
   return KEY_BY_TYPE.get(type) ?? null;
 }
 
+/**
+ * Types that share an event's user preferences but not its team setting. An
+ * auto clock-out has already happened, so an organization turning reminders
+ * off (even after the member agreed) must not hide it from the member.
+ */
+const TYPES_EXEMPT_FROM_ORG_SETTING = new Set(['auto-clock-out']);
+
 /** The team setting that governs a notification type, or null. */
 export function orgSettingForType(type) {
+  if (TYPES_EXEMPT_FROM_ORG_SETTING.has(type)) return null;
   const key = prefKeyForType(type);
   return (key && ORG_SETTING_FOR_EVENT[key]) || null;
 }
