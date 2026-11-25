@@ -351,8 +351,9 @@ export default function Huddle() {
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId),
   );
-  // A send is in flight: guards re-entry. (SuperChat shows the busy button.)
-  const sendingRef = useRef(false);
+  // The conversations with a send in flight: guards re-entry in each, as
+  // SuperChat's busy Send does, so another conversation can still post.
+  const sendingInRef = useRef(new Set<string>());
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -1066,16 +1067,18 @@ export default function Huddle() {
     sendOption?: string,
   ) {
     // A Pulse video or ticket keeps the send button live with an empty box, so
-    // a second click during the upload would post the same thing again. The
-    // composer's own `isSending` covers this a render later; the ref covers
-    // the click that lands before that render. Refused out loud (a rejection),
-    // so SuperChat puts this draft and its files back rather than dropping them.
+    // a second click during the upload would post the same thing again.
+    // SuperChat shows this conversation's Send busy a render later; the ref
+    // covers the click that lands before that render. Refused out loud (a
+    // rejection), so SuperChat puts this draft and its files back rather than
+    // dropping them. Other conversations are not held up.
+    const sendingIn = sendingInRef.current;
     const alreadySending = () => new Error('A post is already on its way. Send again in a moment.');
-    if (sendingRef.current) throw alreadySending();
+    if (sendingIn.has(conversationId)) throw alreadySending();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
-    if (sendingRef.current) throw alreadySending();
-    sendingRef.current = true;
+    if (sendingIn.has(conversationId)) throw alreadySending();
+    sendingIn.add(conversationId);
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
@@ -1091,11 +1094,12 @@ export default function Huddle() {
     const sentFromParam = openConversationParam();
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
-      if (ticketVideos.loading) {
-        throw new Error("The tickets' videos are still loading. Send again in a moment.");
-      }
-      if (ticketVideos.error) throw new Error(ticketVideos.error);
-      const staged = ticketVideos.videos;
+      // The picked tickets' videos, read now if they're still loading: Send
+      // isn't held busy for them.
+      if (!ticketVideos.loading && ticketVideos.error) throw new Error(ticketVideos.error);
+      const staged = ticketVideos.loading
+        ? await fetchTicketVideos(ticketIds)
+        : ticketVideos.videos;
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
@@ -1133,7 +1137,7 @@ export default function Huddle() {
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
     } finally {
-      sendingRef.current = false;
+      sendingIn.delete(conversationId);
     }
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
@@ -1429,9 +1433,9 @@ export default function Huddle() {
                       uploadLabels: UPLOAD_TEXT,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: selectedTicketIds.length > 0,
-                      // SuperChat shows Send busy while a post is on its way; a
-                      // send while the tickets' videos still load is refused in
-                      // handleSend, and SuperChat puts the draft and files back.
+                      // SuperChat shows Send busy in the conversation whose post
+                      // is on its way; tickets' videos still loading at send are
+                      // read in handleSend.
                       mentionOptions: [
                         ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                         ...mentions.options,
