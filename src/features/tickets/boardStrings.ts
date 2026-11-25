@@ -33,6 +33,7 @@ export const boardText = {
   pinFailed: "Couldn't pin that ticket. Try again in a moment.",
   unpinFailed: "Couldn't unpin that ticket. Try again in a moment.",
   reorderFailed: "Couldn't save your pins. Try again in a moment.",
+  addToPlanFailed: "Pinned, but couldn't add it to today's plan. Try again in a moment.",
   pinnedSection: 'Pinned',
   restSection: 'Rest of my board',
   pinnedEmpty: 'Drag the tickets you plan to work on here, or pin them from their ⋮ menu.',
@@ -42,5 +43,14 @@ export const boardText = {
     count === 1
       ? 'Start session: plan your pinned ticket and start it once you clock in'
       : `Start session: plan your ${count} pinned tickets and start the first once you clock in`,
+  /** In Start session's place while clocked in: the session's state. */
+  inProgress: 'In Progress',
+  onBreak: 'On break',
   columnHeading: 'My Board and timer',
+  /** A row's place in today's plan while clocked in (M4). */
+  inTodaysPlan: "Today's plan",
+  checkedOff: 'Checked off',
+  /** The live timer badge's name; its time follows. */
+  timerRunning: 'Timer running',
+  timerPaused: 'Timer paused',
 };

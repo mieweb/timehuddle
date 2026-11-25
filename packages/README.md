@@ -27,6 +27,7 @@ packages/
 | ---------------- | -------------------------------------------------- | --------------------- |
 | `app-links`      | App Store / Google Play listings and phone → store | Front end and backend |
 | `ota-version`    | OTA bundle version comparison                      | Front end and backend |
+| `plan-items`     | Today's plan read out of its text (#886)           | Front end and backend |
 | `ticket-sources` | The ticket record and the per-source config (#734) | Front end and backend |
 | `youtube`        | YouTube link detection and titles                  | Front end             |
 

@@ -1,0 +1,15 @@
+{
+  "name": "@timehuddle/plan-items",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": "./index.js",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3"
+  }
+}

@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { resolveSince } from './huddle-window-core';
+import { priorSeconds } from './timer-updates-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
@@ -66,6 +67,10 @@ Meteor.startup(async () => {
       { deliveredAt: 1, deliverAt: 1 },
       { partialFilterExpression: { deliverAt: { $exists: true } } }
     );
+    // A "Working on …" update's timer, looked up by the post (postTimer).
+    await rawDb()
+      .collection('timers')
+      .createIndex({ huddlePostId: 1 }, { partialFilterExpression: { huddlePostId: { $exists: true } } });
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
@@ -258,6 +263,9 @@ async function enrichPost(post) {
   // (attachEnrichment); a single post looks up its own, none without a video.
   const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
 
+  // The timer a "Working on …" update started (attachTimers).
+  const timer = post.timer !== undefined ? post.timer : (await attachTimers([post]))[0].timer;
+
   return {
     id,
     teamId: post.teamId,
@@ -296,6 +304,9 @@ async function enrichPost(post) {
     // plan's stale `true` in the client cache, which merges fields.
     sessionUpdate: post.sessionUpdate === true,
     session,
+    // Always present: a live `changed` that left it out would keep a stale
+    // running timer in the client cache, which merges fields.
+    timer,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
@@ -352,6 +363,83 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** How long a timer change waits for its post to be published to a feed. */
+const PENDING_TIMER_MS = 30_000;
+
+/**
+ * A timer session as a post shows it: when it started, when it stopped (null
+ * while it runs), its logged time once stopped (which a correction may have
+ * changed), and the time its ticket already had this clock session.
+ */
+function toPostTimer(timer, prior = 0) {
+  const endTime = timer.endTime ?? null;
+  return {
+    startTime: timer.startTime,
+    endTime,
+    durationSeconds: endTime === null ? null : (timer.durationSeconds ?? null),
+    priorSeconds: prior,
+  };
+}
+
+/**
+ * For each of `timers`, its ticket's time this clock session before it began
+ * (`priorSeconds`), so a "Working on …" update for a ticket come back to
+ * continues its time. Its ticket is its work item's; a timer outside a clock
+ * session has none before it.
+ * @returns {Promise<Map<string, number>>} by timer id
+ */
+async function priorTimes(timers) {
+  const inSession = timers.filter((t) => t.clockEventId);
+  if (!inSession.length) return new Map();
+  const sessions = await rawDb()
+    .collection('timers')
+    .find(
+      { $or: inSession.map((t) => ({ userId: t.userId, clockEventId: t.clockEventId })) },
+      { projection: { userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+  const itemIds = [...new Set(sessions.map((t) => t.workItemId))].filter(isValidId);
+  const items = itemIds.length
+    ? await rawDb()
+        .collection('workitems')
+        .find({ _id: { $in: itemIds.map((id) => new ObjectId(id)) } }, { projection: { source: 1, ticketId: 1 } })
+        .toArray()
+    : [];
+  const ticketOf = new Map(items.map((item) => [item._id.toHexString(), `${item.source ?? 'huddle'}:${item.ticketId}`]));
+  const ticketKey = (t) => `${t.userId}|${t.clockEventId}|${ticketOf.get(t.workItemId) ?? t.workItemId}`;
+  const byTicket = new Map();
+  for (const t of sessions) byTicket.set(ticketKey(t), [...(byTicket.get(ticketKey(t)) ?? []), t]);
+  return new Map(
+    inSession.map((t) => [String(t._id), priorSeconds(t, byTicket.get(ticketKey(t)) ?? [])]),
+  );
+}
+
+/**
+ * The timer each "Working on …" update started, read off the timer session
+ * (`huddlePostId`, timer-updates.js) rather than copied onto the post, so the
+ * session stays the one source of its time. Scoped to the post's author.
+ * Mutates each post with a `timer`, null for a post that started none.
+ */
+async function attachTimers(posts) {
+  if (!posts.length) return posts;
+  const ids = posts.map((p) => (p._id?.toHexString ? p._id.toHexString() : String(p._id)));
+  const timers = await rawDb()
+    .collection('timers')
+    .find(
+      { huddlePostId: { $in: ids } },
+      { projection: { huddlePostId: 1, userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+  const byPost = new Map(timers.map((t) => [t.huddlePostId, t]));
+  const prior = await priorTimes(timers);
+  posts.forEach((post, i) => {
+    const timer = byPost.get(ids[i]);
+    post.timer =
+      timer && timer.userId === post.userId ? toPostTimer(timer, prior.get(String(timer._id))) : null;
+  });
+  return posts;
+}
+
 /** The ids of a post's PulseVault videos. */
 function postVideoIds(post) {
   return (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null));
@@ -376,6 +464,7 @@ async function attachEnrichment(posts) {
     fetchPostTickets(ticketIds),
     videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
+    attachTimers(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
@@ -441,9 +530,33 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   changeStream.on('error', (err) => {
     console.error('[huddle] change stream error:', err);
   });
+  // A "Working on …" update's timer is the timer session's (attachTimers): it
+  // learns its post just after the post is written, and stops later. Either
+  // change is sent as the post's `timer`, so its time stops live.
+  const timerStream = db.collection('timers').watch(
+    [
+      {
+        $match: {
+          operationType: 'update',
+          $or: [
+            { 'updateDescription.updatedFields.huddlePostId': { $exists: true } },
+            { 'updateDescription.updatedFields.endTime': { $exists: true } },
+            { 'updateDescription.updatedFields.durationSeconds': { $exists: true } },
+          ],
+        },
+      },
+    ],
+    { fullDocument: 'updateLookup', ...(operationTime ? { startAtOperationTime: operationTime } : {}) },
+  );
+  timerStream.on('error', (err) => {
+    console.error('[huddle] timer change stream error:', err);
+  });
   this.onStop(() => {
     changeStream.close().catch(err => {
       console.error('[huddle] failed to close change stream:', err);
+    });
+    timerStream.close().catch((err) => {
+      console.error('[huddle] failed to close timer change stream:', err);
     });
   });
 
@@ -475,6 +588,10 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   // Track which ids this subscription has sent, so a draft being published
   // (an update) is delivered as `added` rather than a no-op `changed`.
   const sentIds = new Set();
+  // A timer change for a post still being published: applied once it's sent.
+  const pendingTimers = new Map();
+  /** A stopped timer is never undone by an open snapshot of the same stint. */
+  const isNewer = (next, prev) => !prev || next.endTime !== null || prev.endTime === null;
   await attachEnrichment(posts);
   for (const post of posts) {
     const enriched = await enrichPost(post);
@@ -516,6 +633,9 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
           // Covers both fresh inserts and drafts being published.
           sentIds.add(docId);
           self.added('huddlePosts', enriched.id, enriched);
+          const timer = pendingTimers.get(docId);
+          pendingTimers.delete(docId);
+          if (timer && isNewer(timer, enriched.timer)) self.changed('huddlePosts', docId, { timer });
         }
       } else if (change.operationType === 'delete') {
         const deletedId = change.documentKey._id.toHexString();
@@ -526,6 +646,34 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
       }
     } catch (err) {
       console.error('[huddle] change stream error:', err);
+    }
+  }));
+
+  timerStream.on('change', Meteor.bindEnvironment(async (change) => {
+    try {
+      const timer = change.fullDocument;
+      const postId = timer?.huddlePostId;
+      if (!postId) return;
+      // Most changes are other teams': skip them before reading their times.
+      if (!sentIds.has(postId)) {
+        if (!isValidId(postId)) return;
+        const post = await rawDb()
+          .collection('huddlePosts')
+          .findOne({ _id: new ObjectId(postId) }, { projection: { teamId: 1 } });
+        if (!post || String(post.teamId) !== teamId) return;
+      }
+      const prior = await priorTimes([timer]);
+      const postTimer = toPostTimer(timer, prior.get(String(timer._id)));
+      if (sentIds.has(postId)) self.changed('huddlePosts', postId, { timer: postTimer });
+      else if (isNewer(postTimer, pendingTimers.get(postId))) {
+        // The stream sees every team's timers: hold one only while its post could still arrive.
+        pendingTimers.set(postId, postTimer);
+        Meteor.setTimeout(() => {
+          if (pendingTimers.get(postId) === postTimer) pendingTimers.delete(postId);
+        }, PENDING_TIMER_MS);
+      }
+    } catch (err) {
+      console.error('[huddle] timer change stream error:', err);
     }
   }));
 });

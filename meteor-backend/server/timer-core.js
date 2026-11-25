@@ -53,17 +53,17 @@ export async function closeRunningForUser(userId, now) {
 }
 
 /**
- * Close every running timer session for the user, and say so in Huddle (#681).
- * With `startedBy`, only those that began at or before it: finishing a clock-out
- * late must not close a timer of the shift the person has started since.
- * Returns how many were closed.
+ * Close every running timer session for the user, at clock-out. Nothing is
+ * posted for it: the session's "Working on …" update shows its time, stopped,
+ * and the clock-out says the rest. With `startedBy`, only those that began at
+ * or before it: finishing a clock-out late must not close a timer of the shift
+ * the person has started since. Returns how many were closed.
  */
 export async function closeAllForUser(userId, now, { startedBy } = {}) {
   const running = await timers()
     .find({ userId, endTime: null, ...(startedBy == null ? {} : { startTime: { $lte: startedBy } }) })
     .toArray();
   if (running.length === 0) return 0;
-  // One at a time, so each "Stopped" is said only by the call that closed it.
   let closedCount = 0;
   for (const session of running) {
     const closed = await timers().updateOne(
@@ -75,9 +75,7 @@ export async function closeAllForUser(userId, now, { startedBy } = {}) {
         },
       }
     );
-    if (!closed.modifiedCount) continue;
-    closedCount += 1;
-    await postTimerUpdate(TimerUpdate.STOPPED, session, { at: justBefore(now) });
+    if (closed.modifiedCount) closedCount += 1;
   }
   return closedCount;
 }

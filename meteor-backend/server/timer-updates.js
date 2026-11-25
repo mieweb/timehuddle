@@ -16,7 +16,7 @@ import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, redmineIssueLabel } from './ticket-label';
 import { normalizeSource } from './ticket-refs';
-import { timerUpdateText } from './timer-updates-core';
+import { PlanUpdate, planUpdateText, timerUpdateText } from './timer-updates-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -71,16 +71,68 @@ async function audienceFor(session, workItem) {
 }
 
 /**
+ * Write an update post: an ordinary Huddle post on the person's behalf, which
+ * the feed's publication carries live like any other.
+ * @returns {Promise<string>} the post's id
+ */
+export async function insertUpdatePost({ teamId, userId, text, at }) {
+  const now = at === undefined ? new Date() : new Date(at);
+  const post = {
+    _id: new ObjectId(),
+    teamId,
+    userId,
+    content: { text, mentions: [] },
+    attachments: [],
+    likes: [],
+    commentCount: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await rawDb().collection('huddlePosts').insertOne(post);
+  return post._id.toHexString();
+}
+
+/**
+ * How a team names its tickets in an update, by id: `Map<ticketId, label>`
+ * (ticket-label.js). A ticket gone from the team is left out.
+ */
+export async function teamTicketLabels(teamId, ticketIds) {
+  const ids = ticketIds.filter(isValidId);
+  if (!ids.length) return new Map();
+  const team = String(teamId);
+  const [rows, naming] = await Promise.all([
+    rawDb()
+      .collection('tickets')
+      .find(
+        {
+          _id: { $in: ids.map((id) => new ObjectId(id)) },
+          // A team's id is a string or, for older teams, an ObjectId.
+          teamId: { $in: isValidId(team) ? [team, new ObjectId(team)] : [team] },
+        },
+        { projection: { title: 1, number: 1, github: 1, linkIsIssue: 1, linkedIssue: 1 } },
+      )
+      .toArray(),
+    ticketIdsForTeams(rawDb(), [team]),
+  ]);
+  const redmineHost = hostOf(optionalRedmineBaseUrl());
+  const teamIds = naming.get(team);
+  return new Map(
+    rows.map((row) => [row._id.toHexString(), huddleTicketLabel(row, teamIds, redmineHost)]),
+  );
+}
+
+/**
  * Post an update for a timer session. An update that opens a session (started,
  * switched, resumed) is remembered on it, so it can be discarded if the stint
  * turns out to be a slip (`discardTimerUpdate`).
  *
  * @param {string} action one of `TimerUpdate`
  * @param {{ _id: unknown, userId: string, workItemId: string, clockEventId?: string | null }} session
- * @param {{ remember?: boolean, at?: number }} [options] `at` is when it
- *   happened (epoch ms), for an update that must read before something else
- *   stamped at the same moment; the default is now.
- * @returns {Promise<{ postId: string, teamId: string } | null>} null when nothing was posted
+ * @param {{ remember?: boolean, at?: number }} [options]
+ *   `at` is when it happened (epoch ms), for an update that must read before
+ *   something else stamped at the same moment; the default is now.
+ * @returns {Promise<{ postId: string, teamId: string } | null>}
+ *   null when nothing was posted
  */
 export async function postTimerUpdate(action, session, { remember = false, at } = {}) {
   try {
@@ -93,31 +145,53 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
     if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
     const ids = (await ticketIdsForTeams(rawDb(), [audience.teamId])).get(audience.teamId);
     const label = audience.label(ids, hostOf(optionalRedmineBaseUrl()));
-
-    const now = at === undefined ? new Date() : new Date(at);
-    const post = {
-      _id: new ObjectId(),
+    const postId = await insertUpdatePost({
       teamId: audience.teamId,
       userId: session.userId,
-      content: { text: timerUpdateText(action, label), mentions: [] },
-      attachments: [],
-      likes: [],
-      commentCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await rawDb().collection('huddlePosts').insertOne(post);
-
-    const postId = post._id.toHexString();
+      text: timerUpdateText(action, label),
+      at,
+    });
     if (remember) {
       await rawDb()
         .collection('timers')
-        .updateOne({ _id: new ObjectId(hex(session._id)) }, { $set: { huddlePostId: postId } });
+        .updateOne(
+          { _id: new ObjectId(hex(session._id)) },
+          { $set: { huddlePostId: postId } },
+        );
     }
     return { postId, teamId: audience.teamId };
   } catch (err) {
     console.error('[timer-updates] could not post the update:', err);
     return null;
+  }
+}
+
+/**
+ * @typedef {{ teamId: string, ticketId: string, seconds: number }} CheckedOff
+ * a ticket a switch checked off today's plan, on the plan's team
+ */
+
+/**
+ * A check-off as its own update on the plan's team (touch and go, M4).
+ * @param {string} userId
+ * @param {CheckedOff | null | undefined} checkedOff
+ * @param {{ at?: number }} [options] `at` is when it happened (epoch ms); the default is now.
+ */
+export async function postCheckedOff(userId, checkedOff, { at } = {}) {
+  try {
+    if (!checkedOff || !(await isOnTeam(checkedOff.teamId, userId))) return;
+    const label = (await teamTicketLabels(checkedOff.teamId, [checkedOff.ticketId])).get(
+      checkedOff.ticketId,
+    );
+    if (!label) return;
+    await insertUpdatePost({
+      teamId: checkedOff.teamId,
+      userId,
+      text: planUpdateText(PlanUpdate.CHECKED, { label }, checkedOff.seconds),
+      at,
+    });
+  } catch (err) {
+    console.error('[timer-updates] could not post the check-off:', err);
   }
 }
 

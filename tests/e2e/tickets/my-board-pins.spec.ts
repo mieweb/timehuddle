@@ -295,4 +295,30 @@ test.describe('My Board pins', () => {
     await tickets.stopTimerButton(pinned[0]).click();
     await clock.ensureClockedOut();
   });
+
+  test("a pin made while clocked in joins today's plan as a checklist item", async ({ page }) => {
+    test.slow();
+    const clock = new ClockPage(page);
+    await clock.ensureClockedOut();
+    await tickets.goto();
+    const title = `E2E Mid Session Pin ${Date.now()}`;
+    await onBoard(title);
+
+    await clock.ensureClockedIn();
+    await tickets.goto();
+    await tickets.switchToTab('my-board');
+    const planned = page.waitForResponse((res) => res.url().includes('clock_setPlan') && res.ok());
+    await pinFromMenu(page, tickets, title, 'Pin');
+    await planned;
+
+    // On the Clock page it's a line of today's checklist, with its timer button.
+    await clock.goto();
+    const line = page.locator('.ProseMirror li').filter({ hasText: title });
+    await expect(line.getByRole('checkbox')).toBeVisible({ timeout: 10000 });
+    await expect(
+      line.getByRole('button', { name: new RegExp(`^Start timer for .*${title}`) }),
+    ).toBeVisible();
+
+    await clock.ensureClockedOut();
+  });
 });

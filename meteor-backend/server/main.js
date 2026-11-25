@@ -37,6 +37,7 @@ import './redmine-issue-methods';
 import './redmine-time-sync';
 import './my-board';
 import './clock';
+import './session-plan';
 import './timers';
 import './timesheet-approvals';
 import './notifications';
@@ -1674,6 +1675,52 @@ Meteor.startup(async () => {
   Wormhole.expose('clock.activeForUser', {
     description: "The caller's active clock event across any team, or null",
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('clock.plan', {
+    description:
+      "Today's plan on the caller's open session in a team: its items and whether each is checked off, or null when clocked out",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('clock.setPlan', {
+    description:
+      "Set today's plan on the caller's open session from its items in order; each new item, and each check the edit changes, is announced in Huddle",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              ticketId: { type: 'string' },
+              text: { type: 'string' },
+              checked: { type: 'boolean' },
+            },
+          },
+        },
+      },
+      required: ['teamId', 'items'],
+    },
+  });
+
+  Wormhole.expose('clock.checkPlanItem', {
+    description: "Check an item of today's plan off by hand, or uncheck it; announced in Huddle",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        itemId: { type: 'string' },
+        checked: { type: 'boolean' },
+      },
+      required: ['teamId', 'itemId', 'checked'],
+    },
   });
 
   Wormhole.expose('clock.events', {

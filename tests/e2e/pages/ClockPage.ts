@@ -56,7 +56,12 @@ export class ClockPage extends BasePage {
    */
   private async expandComposer(collapsedInput: Locator) {
     await collapsedInput.or(this.proseMirror).first().waitFor({ state: 'visible', timeout: 10000 });
-    if (await collapsedInput.isVisible()) await collapsedInput.click();
+    if (!(await collapsedInput.isVisible())) return;
+    // Seeded content (a waiting ticket start) can expand it mid-click,
+    // detaching the stand-in — the editor showing is what was wanted.
+    await collapsedInput.click({ timeout: 5000 }).catch(async (error) => {
+      if (!(await this.proseMirror.isVisible())) throw error;
+    });
   }
 
   async goto() {

@@ -11,7 +11,8 @@ import React, { useState } from 'react';
 import type { TicketSourceId } from '../../../lib/api';
 import { useRunningTicket } from '../../../lib/useRunningTicket';
 import { useSession } from '../../../lib/useSession';
-import { TimerToggleButton } from '../../../ui/TimerToggleButton';
+import { TimerControl } from '../../../ui/TimerControl';
+import { useSessionPlan } from '../../clock/useSessionPlan';
 import { useTicketStart } from '../../timers/TicketStartProvider';
 import { ticketTimerText, timerLabel } from '../../timers/ticketTimerStrings';
 import { BoardToggleButton } from '../BoardToggleButton';
@@ -19,6 +20,7 @@ import { boardText } from '../boardStrings';
 import { ticketKey } from '../sources';
 import { useBoardActions } from '../useBoardActions';
 import { useMyBoardKeys } from '../useMyBoardKeys';
+import { todayPlanRows } from '../todayPlanRows';
 
 export interface TicketQuickActionsProps {
   sourceId: TicketSourceId;
@@ -47,6 +49,11 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
   const entryKeys = [key, linkedKey].filter((k): k is string => !!k && boardKeys.has(k));
   const onBoard = entryKeys.length > 0;
   const isTiming = runningTicket?.key === key;
+  // Its time this session, as My Board and the Clock page count it.
+  const { plan } = useSessionPlan();
+  const runningSince = isTiming
+    ? (todayPlanRows(plan, runningTicket).running?.since ?? null)
+    : null;
   // Until a read of the board has succeeded, "not on it" is not known: say
   // nothing about adding, and offer no toggle.
   const addsToBoard = boardKnown && !onBoard && !isTiming;
@@ -78,8 +85,9 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
         showLabel
         ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
       />
-      <TimerToggleButton
+      <TimerControl
         isRunning={isTiming}
+        runningSince={runningSince}
         isLoading={busyKey === key}
         disabled={boardBusy}
         onClick={toggleTimer}

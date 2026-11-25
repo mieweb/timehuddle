@@ -96,9 +96,19 @@ test.describe('Huddle composer — individual actions', () => {
     await composerEditor(page).fill(planText);
     await page.route('**/api/clock_activeForUser*', (route) => route.abort());
     await postButton(page).click();
-    // The button is briefly disabled while posting too, so check the text first.
-    await expect(composerEditor(page)).not.toContainText(planText, { timeout: 30000 });
-    await expect(postButton(page)).toBeDisabled();
+    // The live clock feed may still tell the page it's clocked in, so it moves
+    // on to the wrap-up; otherwise the plan composer must be left empty. The
+    // button is briefly disabled while posting too, so check the text first.
+    await expect(async () => {
+      if (await postButton(page).count()) {
+        await expect(composerEditor(page)).not.toContainText(planText, { timeout: 1000 });
+        await expect(postButton(page)).toBeDisabled({ timeout: 1000 });
+      } else {
+        await expect(page.getByRole('heading', { name: 'What did you work on?' })).toBeVisible({
+          timeout: 1000,
+        });
+      }
+    }).toPass({ timeout: 30000 });
 
     await page.unroute('**/api/clock_activeForUser*');
     await page.reload();
@@ -161,6 +171,28 @@ test.describe('Huddle composer — individual actions', () => {
     const stored = await findPostByText(postText);
     expect(stored?.content.text).toContain(`/app/profile/${memberId}`);
     expect(stored?.content.mentions).toEqual([memberId]);
+  });
+
+  test('a ticket picked with # goes on its own line, and typing goes on below it', async ({
+    page,
+  }) => {
+    // One word: the `#` list matches up to the first space.
+    const title = `OwnLine${Date.now()}`;
+    await createTicket(page, title);
+    await openComposer(page);
+
+    await composerEditor(page).fill('Plan first');
+    await page.keyboard.type(` #${title}`, { delay: 10 });
+    await page.getByRole('option', { name: new RegExp(title) }).click();
+    await page.keyboard.type('after', { delay: 10 });
+
+    const lines = composerEditor(page).locator('p');
+    await expect(lines).toHaveCount(3);
+    await expect(lines.nth(0)).toHaveText('Plan first');
+    await expect(lines.nth(1).getByRole('link')).toContainText(title);
+    await expect(lines.nth(2)).toHaveText('after');
+
+    await deleteTicket(page, title);
   });
 
   test('a removed attachment is left out of the post', async ({ page }) => {

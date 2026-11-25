@@ -51,6 +51,8 @@ export interface RowListItemProps extends Omit<React.HTMLAttributes<HTMLDivEleme
   meta?: React.ReactNode;
   /** Beside the title, wrapping under it when the row is narrow: badges and the like. */
   properties?: React.ReactNode;
+  /** A line of its own under the title and its properties, e.g. a timer's time. */
+  footer?: React.ReactNode;
   /** Controls at the end of the row's first line, e.g. an options menu. */
   actions?: React.ReactNode;
   selected?: boolean;
@@ -68,6 +70,7 @@ export const RowListItem: React.FC<RowListItemProps> = ({
   title,
   meta,
   properties,
+  footer,
   actions,
   selected = false,
   onOpen,
@@ -119,6 +122,7 @@ export const RowListItem: React.FC<RowListItemProps> = ({
           <div className="row-list-title min-w-0 text-sm leading-snug break-words">{title}</div>
           {properties && <div className="row-list-properties contents">{properties}</div>}
         </div>
+        {footer && <div className="row-list-footer flex min-w-0 items-center pb-1">{footer}</div>}
       </div>
       {actions && (
         <div className="row-list-actions flex h-8 shrink-0 items-center" data-row-list-control>

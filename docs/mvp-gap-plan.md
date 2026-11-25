@@ -85,22 +85,22 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 
 ## What Is In and Out
 
-| Area                                                  | Status | Decision                                                                                    |
-| ----------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| Dashboard, one board across sources, Take a break     | ✅     | Nothing to do                                                                               |
-| My Board header (My Board / 🔭 / My Week, Select)     | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
-| New ticket form                                       | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
-| **Reorderable list (drag to pin and order)**          | 🟡     | **M1** — `ReorderableList` in [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)      |
-| **Pinned section + Start session**                    | ❌     | **M2**                                                                                      |
-| **Tickets inline in the plan composer**               | 🟡     | **M3**                                                                                      |
-| **Coordinating the plan across Board, Clock, Huddle** | 🟡     | **M4**                                                                                      |
-| **Clock-out carry-over of unchecked items**           | ❌     | **M5**                                                                                      |
-| **Actionable toasts (assigned, mentioned)**           | 🟡     | **M6** (issue later)                                                                        |
-| Edit plan with ✕ per item + Done                      | 🎨     | Illustrative only. Plan edits happen on the Clock page; the Huddle post isn't rewritten     |
-| Pulse recording, progress, Huddle ↔ Pulse switch      | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
-| Ticket beats / video counts on rows                   | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
-| Check-off behaviour (touch and go)                    | 🟡     | **M4** — see [Scene 7](#scene-7--checking-off-touch-and-go)                                 |
-| What a check-off does to the ticket's status          | ❓     | Later — see [Open Questions](#open-questions)                                               |
+| Area                                                  | Status | Decision                                                                                          |
+| ----------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------- |
+| Dashboard, one board across sources, Take a break     | ✅     | Nothing to do                                                                                     |
+| My Board header (My Board / 🔭 / My Week, Select)     | 🎨     | The prototype just hides these. Cosmetic, no issue                                                |
+| New ticket form                                       | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                        |
+| **Reorderable list (drag to pin and order)**          | 🟡     | **M1** — `ReorderableList` in [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)            |
+| **Pinned section + Start session**                    | ❌     | **M2**                                                                                            |
+| **Tickets inline in the plan composer**               | 🟡     | **M3**                                                                                            |
+| **Coordinating the plan across Board, Clock, Huddle** | 🟡     | **M4**                                                                                            |
+| **Clock-out carry-over of unchecked items**           | ❌     | **M5**                                                                                            |
+| **Actionable toasts (assigned, mentioned)**           | 🟡     | **M6** (issue later)                                                                              |
+| Edit plan with ✕ per item + Done                      | 🎨     | Illustrative only. The plan isn't edited by hand once clocked in; the Huddle post isn't rewritten |
+| Pulse recording, progress, Huddle ↔ Pulse switch      | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native       |
+| Ticket beats / video counts on rows                   | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)                     |
+| Check-off behaviour (touch and go)                    | 🟡     | **M4** — see [Scene 7](#scene-7--checking-off-touch-and-go)                                       |
+| What a check-off does to the ticket's status          | ❓     | Later — see [Open Questions](#open-questions)                                                     |
 
 ---
 
@@ -109,17 +109,17 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 Checked against the installed `@mieweb/ui` and its Kerebron editor. Most of the MVP
 is wiring, not new components; the one new component is `ReorderableList` (M1), built upstream in `@mieweb/ui`.
 
-| Need                                        | Component                                                                                             | Fit                                                                                                                                                                                                                                               |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plan as an inline checklist in the composer | `RichEditor` (Kerebron, already the composer)                                                         | ✅ `BasicEditorKit` ships `task_list` / `task_item` nodes, the menu has **Wrap in task list**, and markdown round-trips as `- [ ]` / `- [x]`. Ticket items are task items holding a ticket link. Removing an item is just deleting its text.      |
-| Plan checklist rendered in Huddle           | `MarkdownContent` (`react-markdown` + `remark-gfm`)                                                   | ✅ GFM task lists already render as checkboxes                                                                                                                                                                                                    |
-| Read view of today's plan with progress     | `ActionPlan`                                                                                          | ✅ Steps with `todo` / `in_progress` / `done`, `progress(done, total)` ("3 of 4 done"), `onStatusChange`, `getHref` for the ticket link, `renderStepMeta` for a timer pill, `arrange="manual"`. Fits the Clock page card and the wrap-up summary. |
-| Pinned / Rest of my board sections          | `Collapsible` around the existing `TicketList`; `CountBadge`                                          | ✅ Collapsible headers with counts. (`ListView` also offers `groupBy` + `defaultCollapsedGroups`, but the Tickets page uses its own `TicketList` / `TicketRow`)                                                                                   |
-| Start session                               | `Button` (in a `ButtonGroup` if it gains siblings)                                                    | ✅                                                                                                                                                                                                                                                |
-| **Drag to pin and reorder**                 | `ReorderableList` (new, [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) on `useDragReorder` | 🟡 The hook already gives drag, Move up / Move down, Alt+↑/↓ and announcements. #782 adds a ready-made list, sliding rows and touch drag — see [M1](#m1--reorderable-list-for-pins).                                                              |
-| Actionable toasts                           | `Toast` (`action: { label, onClick }`)                                                                | ✅ Already used for "Started … · View post"                                                                                                                                                                                                       |
-| Running-ticket timer pill, video count      | `Badge`, `CountBadge`                                                                                 | ✅                                                                                                                                                                                                                                                |
-| Video playback, upload progress             | `MediaFeed` / `VideoCard`, `Progress`                                                                 | ✅ Already used by `VideoFeedView` and Pulse uploads                                                                                                                                                                                              |
+| Need                                        | Component                                                                                             | Fit                                                                                                                                                                                                                                           |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan as an inline checklist in the composer | `RichEditor` (Kerebron, already the composer)                                                         | ✅ `BasicEditorKit` ships `task_list` / `task_item` nodes, the menu has **Wrap in task list**, and markdown round-trips as `- [ ]` / `- [x]`. Ticket items are task items holding a ticket link. Removing an item is just deleting its text.  |
+| Plan checklist rendered in Huddle           | `MarkdownContent` (`react-markdown` + `remark-gfm`)                                                   | ✅ GFM task lists already render as checkboxes                                                                                                                                                                                                |
+| Today's plan while clocked in               | `RichEditor` (the same editor), with a ticket item that carries ▶/⏸ and its timer                     | 🟡 No separate component: after clock-in the plan stays in the editor, each ticket a checklist item. The editor has no node that draws a timer button and running time inside a task item yet — upstream in `@mieweb/ui` through `vendor/ui`. |
+| Pinned / Rest of my board sections          | `Collapsible` around the existing `TicketList`; `CountBadge`                                          | ✅ Collapsible headers with counts. (`ListView` also offers `groupBy` + `defaultCollapsedGroups`, but the Tickets page uses its own `TicketList` / `TicketRow`)                                                                               |
+| Start session                               | `Button` (in a `ButtonGroup` if it gains siblings)                                                    | ✅                                                                                                                                                                                                                                            |
+| **Drag to pin and reorder**                 | `ReorderableList` (new, [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) on `useDragReorder` | 🟡 The hook already gives drag, Move up / Move down, Alt+↑/↓ and announcements. #782 adds a ready-made list, sliding rows and touch drag — see [M1](#m1--reorderable-list-for-pins).                                                          |
+| Actionable toasts                           | `Toast` (`action: { label, onClick }`)                                                                | ✅ Already used for "Started … · View post"                                                                                                                                                                                                   |
+| Running-ticket timer pill, video count      | `Badge`, `CountBadge`                                                                                 | ✅                                                                                                                                                                                                                                            |
+| Video playback, upload progress             | `MediaFeed` / `VideoCard`, `Progress`                                                                 | ✅ Already used by `VideoFeedView` and Pulse uploads                                                                                                                                                                                          |
 
 ---
 
@@ -174,8 +174,9 @@ What the MVP needs:
 
 - **M3:** tickets go **into** the editor as checklist items, and the
   composer opens pre-filled with the pinned tickets.
-- **M4:** coordinate the plan — the Board and Clock page show its progress; Huddle records it as
-  new posts.
+- **M4:** coordinate the plan — after clock-in the plan stays in the same
+  editor, its tickets now checklist items with ▶/⏸ and their timer; the Board
+  shows the same progress; Huddle records it as new posts.
 
 ### Scene 5 — The Plan Lives in Huddle 🟡 → M4
 
@@ -207,7 +208,8 @@ and forth between tickets all day.
   and TH-1 is checked off.
 - **Coming back unchecks.** Start TH-1 again: it's unchecked and its timer resumes,
   adding to the time already logged.
-- **Manual check and uncheck** work on the Clock page and the Pinned section too.
+- **Manual check and uncheck** work on the Clock page's plan editor and the
+  Pinned section too. A tick takes effect at once and is posted to Huddle.
 - **At clock-out,** checked items leave Pinned and unchecked items stay pinned for
   the next session (M5).
 - **Ticket status doesn't change.** Whether a checked-off ticket is closed or
@@ -226,8 +228,10 @@ and forth between tickets all day.
 
 - **Editing:** the prototype's ✕ per item and **Done** button are illustrative.
   **We don't want that UI, and we don't edit the Huddle post to drop an item.**
-  Plan edits happen on the Clock page, where an item is removed by deleting its
-  text. Huddle's ⋯ → **Edit message** stays for radical rewrites only (see the
+  The plan is written before clocking in. **Once clocked in it isn't edited by
+  hand:** the only change mid-session is a ticket pinned then joining it (M2),
+  and the wrap-up at clock-out is the next edit. Huddle's ⋯ → **Edit message**
+  stays for radical rewrites only (see the
   [principle](#principle-the-huddle-timeline-is-append-only)).
 - **Pinning mid-session adds the ticket to today's plan** on the Board and Clock
   page, and appends a post such as "Added TH-307 to today's plan" (M2, M4).
@@ -369,30 +373,70 @@ no ticket or mention chips on the Clock page.
 Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
 post is not edited to show progress.
 
-- [ ] Store the session's plan items and their checked state as session data,
-      separate from the posted message
-- [ ] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
-      "x of y done", ticket links via `getHref`, timer via `renderStepMeta`), edited
-      with the same editor as M3; the Pinned section reflects the same state
-- [ ] Ticket items in the plan post (and on the Clock page) start that ticket's
+- [x] Store the session's plan items and their checked state as session data,
+      separate from the posted message (`clockevents.planItems`, read and
+      changed through `clock.plan` / `clock.setPlan` / `clock.checkPlanItem`;
+      `meteor-backend/server/session-plan.js`)
+- [x] Clock page while clocked in: today's plan stays in the **same
+      `RichEditor`** the plan was written in — no separate component.
+      **Clock in with a plan** turns every ticket in it into a **checklist
+      item**, with its **▶/⏸ button** in front and its time this session in a
+      **pill under the ticket** — ticking while it runs, paused otherwise (`planTicketsAsChecklist` in `@timehuddle/plan-items`,
+      `src/features/clock/usePlanTaskEditor.tsx`). Teams with no wrap-up
+      composer get the same editor read-only (`src/features/clock/TodayPlan.tsx`)
+- [x] A tick or a timer button saves at once and posts to Huddle; the
+      checklist's text isn't how the plan changes mid-session
+- [x] Mid-session the plan changes only by pinning: a ticket pinned while
+      clocked in is added as a new checklist item (M2) and posts "Added … to
+      today's plan" (`addTickets` in `useSessionPlan`; the wrap-up editor
+      writes its line)
+- [x] Every ticket a plan gets — a Start session pin, the **Ticket** button, a
+      `#` pick in a checklist — is an unchecked checklist item
+      (`- [ ] [TH-12: …](/app/tickets/…)`, `planTicketItem`)
+- [x] At clock-out the wrap-up is the next edit of the plan, in the same
+      editor: the wrap-up composer is that checklist, and it saves with the
+      session's checks (`withChecks`). How the wrap-up is posted: M5
+- [x] The ticket task item that draws ▶/⏸ and the running time needs no
+      upstream change: TimeHuddle passes its own task item to `RichEditor`
+      through `editorKits` (`src/features/clock/planTaskKit.ts`)
+- [ ] Follow-up: Kerebron's markdown reader drops `[x]` on a task item, so a
+      checklist always loads unchecked; the plan editor takes its checks from the
+      session plan instead. Fix upstream (Kerebron) and drop the workaround
+- [x] The server starts the session's plan from its plan post the first time a
+      page or timer needs it (`@timehuddle/plan-items`)
+- [x] The `ActionPlan` card and its **Edit plan** button are gone, replaced by
+      the editor above
+- [x] The Pinned section reflects the same state: its rows are My Board's
+      `TicketRow`, which read it (`useSessionPlan`, `src/features/tickets/todayPlanRows.ts`)
+- [x] Ticket items in the plan post (and on the Clock page) start that ticket's
       timer through `useTicketStart`, so the posted plan is the launching point
-- [ ] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
+- [x] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
       switching checks the previous ticket off, returning unchecks it and resumes
       its timer, and items can be checked or unchecked by hand
-- [ ] Starting, switching, checking off and adding to the plan each append a
+- [x] Starting, switching, checking off and adding to the plan each append a
       Huddle post (keep `main`'s "Started …" / "Switched to …", noting what was
       checked off; add "Added … to today's plan")
 - [ ] The plan post is edited only for a radical plan rewrite, and the edit is
       shown with its time and author per
-      [#797](https://github.com/mieweb/timehuddle/issues/797)
-- [ ] Live timer `Badge` on the running ticket's row and plan item
-- [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
-      have no socket)
-- [ ] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its
+      [#797](https://github.com/mieweb/timehuddle/issues/797) — progress no
+      longer edits it; showing the edit's time and author waits on #797
+- [x] Live timer `Badge` on the running ticket's row and under the Clock page's
+      timer. On a ticket's page, the running ticket shows its time under its
+      timer button (`TimerControl`). Today's plan on the Clock page and My Board's
+      rows show a ticket's time as the same `TimePill` (`src/ui/TimePill.tsx`, a
+      `Badge`): green and ticking while it runs, outlined and frozen while a plan
+      ticket waits; in Huddle, the plan post has buttons only, and the
+      "Started …" / "Switched to …" updates are plain text
+- [x] Starting a ticket from the plan post that was taken out of today's plan
+      asks first whether to add it back
+- [x] After REST writes, refresh the feed rather than waiting for DDP (mobile may
+      have no socket) — `requestHuddleRefresh`, served when Huddle resumes
+- [x] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its
       timer resumed and TH-2 checked off, on both the Clock page and the Board
-- [ ] Done when: each switch or check appears in Huddle as a new post, with the
-      plan post unchanged
-- [ ] Done when: timers don't announce every second
+      (My Board's rows; the Pinned section with M2)
+- [x] Done when: each switch or check appears in Huddle as a new post, with the
+      plan post unchanged (`meteor-backend/tests/session-plan.test.ts`)
+- [x] Done when: timers don't announce every second
 
 ### M5 — Clock-Out Carry-Over
 

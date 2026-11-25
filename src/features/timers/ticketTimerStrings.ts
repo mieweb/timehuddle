@@ -25,6 +25,9 @@ export const ticketTimerText = {
   stop: 'Stop timer',
   startLabel: (label: string) => `Start a timer on ${label}`,
   stopLabel: (label: string) => `Stop the timer on ${label}`,
+  /** The time beside a "Working on …" update in Huddle. */
+  workingTimeLabel: (label: string, running: boolean) =>
+    running ? `Time on ${label}, running` : `Time on ${label}, stopped`,
   /**
    * The start button of a ticket that is not on My Board: starting puts it
    * there, so the button says so before it is pressed.

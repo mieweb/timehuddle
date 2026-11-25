@@ -7,10 +7,13 @@
  *      ticket timer is running) or a "plan required" badge when the team
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
- *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
+ *   2. Today's plan — while clocked in, the plan's live state (TodayPlan):
+ *      items checked off, the ticket running, a button to start each ticket.
+ *      The posted plan in Huddle stays as posted.
+ *   3. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Video/Doc/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
- *   3. Recent sessions — the user's last completed sessions on this team.
+ *   4. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
  * page never needs a reload. With the team setting off, it's a plain
@@ -52,6 +55,8 @@ import {
   appendPlanItem,
   appendPlanTickets,
   planTicketItem,
+  planTicketsAsChecklist,
+  withChecks,
   planTicketName,
   ticketIdsInText,
 } from '../huddle/planItems';
@@ -77,7 +82,11 @@ import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload
 import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
+import { TodayPlan } from './TodayPlan';
 import { useRecentSessions } from './useRecentSessions';
+import { useSessionPlan } from './useSessionPlan';
+import { createOwnLineKit } from './ownLineKit';
+import { usePlanTaskEditor } from './usePlanTaskEditor';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
@@ -166,6 +175,20 @@ export const ClockPage: React.FC = () => {
   const runningTicket = useRunningTicket(isClockedIn);
   // A timer started while clocked out, waiting for this clock-in (#586).
   const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
+  // Today's plan as it stands — items checked off, the ticket running (M4).
+  const sessionPlan = useSessionPlan();
+  // Once clocked in, the editor the plan was written in shows it as a
+  // checklist: each ticket a line with its ▶/⏸ and running time (M4).
+  const planEditor = usePlanTaskEditor(sessionPlan, runningTicket);
+  // The running ticket's time this session counts its earlier stints too, as its
+  // checklist line does.
+  const runningTicketPriorMs = useMemo(() => {
+    if (!runningTicket) return 0;
+    const item = sessionPlan.plan?.items.find(
+      (i) => 'ticketId' in i && i.runningSince === runningTicket.startTime,
+    );
+    return item && 'seconds' in item ? item.seconds * 1000 : 0;
+  }, [runningTicket, sessionPlan.plan]);
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -201,6 +224,15 @@ export const ClockPage: React.FC = () => {
   const personTrigger = usePersonTrigger(teamMentions);
   const ticketTrigger = useTicketTrigger(gateTeamId, gateTeam);
   const triggers = useMemo(() => [personTrigger, ticketTrigger], [personTrigger, ticketTrigger]);
+  // A `#` ticket goes on its own line, as the Ticket button puts it.
+  const [ownLineKit] = useState(() => createOwnLineKit(['ticket']));
+  const planKits = useMemo(() => [ownLineKit], [ownLineKit]);
+  // The wrap-up opens on today's plan: its checklist lines carry each ticket's
+  // timer, and ticks save at once.
+  const wrapUpKits = useMemo(
+    () => [...planEditor.editorKits, ownLineKit],
+    [planEditor.editorKits, ownLineKit],
+  );
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -400,6 +432,18 @@ export const ClockPage: React.FC = () => {
     seededTokenRef.current = null;
     setPostedPlan(null);
   }, [isClockedIn, submittingMode, postedPlan]);
+  // Clocked in on the plan this page just posted, the plan becomes today's
+  // checklist in this same editor: each ticket a line with its timer (M4).
+  // The wrap-up opens on it. Only once the page reads clocked in: until then
+  // the draft must stay as posted, so the effect above can clear it.
+  useEffect(() => {
+    const handedOver = handedOverRef.current;
+    if (!isClockedIn || !postedPlan || !handedOver) return;
+    const checklist = planTicketsAsChecklist(handedOver.draft);
+    if (checklist === handedOver.draft) return;
+    handedOverRef.current = { draft: checklist, plan: handedOver.plan };
+    setText((current) => (current === handedOver.draft ? checklist : current));
+  }, [isClockedIn, postedPlan]);
   // A composer being submitted keeps its editor: once clock-out lands, the
   // lookup above resets for a session that has just ended.
   const editorMounted =
@@ -451,13 +495,16 @@ export const ClockPage: React.FC = () => {
 
   // Content pre-loaded into the (uncontrolled) wrap-up editor: THIS session's
   // plan post, so clocking out continues the same content you wrote at
-  // clock-in instead of a blank box. The plan composer starts empty.
+  // clock-in instead of a blank box — with its tickets as checklist lines, as
+  // clocking in left it (M4). The plan composer starts empty.
   const seedText =
     composerMode === 'wrapup'
-      ? (sessionPost?.content.text ??
-        sessionPostFetch?.content.text ??
-        postedPlan?.content.text ??
-        '')
+      ? planTicketsAsChecklist(
+          sessionPost?.content.text ??
+            sessionPostFetch?.content.text ??
+            postedPlan?.content.text ??
+            '',
+        )
       : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
@@ -490,6 +537,29 @@ export const ClockPage: React.FC = () => {
     setText(seedText);
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText, submittingMode]);
+
+  // A ticket that joins today's plan mid-session (pinned on My Board) gets a
+  // checklist line in the wrap-up, once per session: a line deleted here
+  // stays deleted. Waits for the seed, which already holds the posted plan.
+  const planLinesRef = useRef<{ session: string; ticketIds: Set<string> } | null>(null);
+  useEffect(() => {
+    const plan = sessionPlan.plan;
+    if (composerMode !== 'wrapup' || !seedSettled || submittingMode || !plan) return;
+    if (!textRef.current.trim()) return;
+    if (planLinesRef.current?.session !== plan.clockEventId) {
+      planLinesRef.current = { session: plan.clockEventId, ticketIds: new Set() };
+    }
+    const handled = planLinesRef.current.ticketIds;
+    const shown = new Set(ticketIdsInText(textRef.current));
+    const missing = plan.items.flatMap((item) =>
+      'ticketId' in item && !handled.has(item.ticketId)
+        ? [{ id: item.ticketId, name: item.title }]
+        : [],
+    );
+    for (const ticket of missing) handled.add(ticket.id);
+    const added = missing.filter((ticket) => !shown.has(ticket.id));
+    if (added.length) void editPlan((current) => appendPlanTickets(current, added));
+  }, [sessionPlan.plan, composerMode, seedSettled, submittingMode, editorKey]);
 
   // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
   // (clocks you out) — the server does both when the upload lands. Owned here,
@@ -691,11 +761,13 @@ export const ClockPage: React.FC = () => {
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
+      // Once the page reads clocked in, the plan becomes today's checklist
+      // (the effect after `handedOverRef`).
       await clockIn({ planJustPosted: true, planPostId, at });
       // The editor keeps showing the plan while it posts, and the wrap-up
       // that replaces it opens on that same draft. Marked as seeded so it
       // doesn't remount to load the posted copy of the same text.
-      seededTokenRef.current = `wrapup:${trimmed}`;
+      seededTokenRef.current = `wrapup:${planTicketsAsChecklist(trimmed)}`;
     } catch (e) {
       // The post didn't go: its files come back, as they were.
       giveBack?.();
@@ -748,12 +820,21 @@ export const ClockPage: React.FC = () => {
         ).trim();
         // The draft handed over at clock-in is the plan, even where the
         // editor's copy differs from the posted one (image alt text).
+        // It may show the plan as today's checklist, its tickets as lines.
+        const shownPlan = planTicketsAsChecklist(planText);
         const editorNeverSawPlan =
           planText !== '' &&
           handedOverRef.current?.plan !== planText &&
-          !shownSeedRef.current.includes(planText);
-        const textToSave =
-          editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+          !shownSeedRef.current.includes(planText) &&
+          !shownSeedRef.current.includes(shownPlan);
+        // The checklist is saved with the plan's checks: a box in the editor
+        // shows the session's state, which its text doesn't hold.
+        const textToSave = withChecks(
+          editorNeverSawPlan && !trimmed.includes(planText) && !trimmed.includes(shownPlan)
+            ? `${planText}\n\n${trimmed}`
+            : trimmed,
+          planEditor.checkedOf,
+        );
         // Mentions a plan only attached (posted before plans linked them, so
         // no `@Name` in its text) were never shown, so stay — like tickets below.
         const planMentions =
@@ -956,8 +1037,14 @@ export const ClockPage: React.FC = () => {
                   className="inline-flex max-w-full cursor-pointer items-center gap-1.5 hover:opacity-90"
                 >
                   <FontAwesomeIcon icon={faTicket} className="shrink-0" aria-hidden />
-                  <span className="min-w-0 max-w-[min(100%,20rem)] truncate sm:max-w-md md:max-w-lg">
-                    {runningTicket.title}
+                  {/* Its time ticks every second, so nothing here is a live region. */}
+                  <span className="min-w-0 max-w-[min(100%,20rem)] truncate tabular-nums sm:max-w-md md:max-w-lg">
+                    {clockText.runningTicketTime(
+                      runningTicket.title,
+                      formatTimer(
+                        (currentTime - runningTicket.startTime + runningTicketPriorMs) / 1000,
+                      ),
+                    )}
                   </span>
                 </Badge>
               </Button>
@@ -989,6 +1076,12 @@ export const ClockPage: React.FC = () => {
               {timerText.cancelPendingStart}
             </Button>
           </div>
+        )}
+
+        {/* ── Today's plan: its live state, apart from the posted plan (M4) ── */}
+        {/* With a wrap-up composer, that editor shows the plan itself. */}
+        {isClockedIn && composerMode !== 'wrapup' && (
+          <TodayPlan sessionPlan={sessionPlan} triggers={triggers} runningTicket={runningTicket} />
         )}
 
         {/* ── Composer-first: a big prompt, then one card holding the plan/
@@ -1076,8 +1169,21 @@ export const ClockPage: React.FC = () => {
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
                       triggers={triggers}
+                      editorKits={composerMode === 'wrapup' ? wrapUpKits : planKits}
                     />
                   </Suspense>
+                  {composerMode === 'wrapup' && (
+                    <>
+                      {planEditor.timers}
+                      <div role="alert" className="today-plan-error">
+                        {planEditor.failure && (
+                          <Text variant="destructive" size="sm">
+                            {planEditor.failure}
+                          </Text>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   {/* ── Attachment tiles (tickets and mentions are in the text) ── */}
                   <ComposerChips

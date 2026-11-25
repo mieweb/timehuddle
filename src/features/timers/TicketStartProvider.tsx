@@ -38,6 +38,7 @@ import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { timerApi, type TimerUpdateRef, type UnsentRedmineTime } from '../../lib/api';
+import { requestHuddleRefresh } from '../../lib/huddleRefresh';
 import { useTeam } from '../../lib/TeamContext';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
@@ -127,6 +128,8 @@ const sameTicketDay = (a: UnsentRedmineTime, b: UnsentRedmineTime) =>
 function refreshTimerViews() {
   window.dispatchEvent(new CustomEvent('tickets:refetch'));
   window.dispatchEvent(new CustomEvent('work:refetch'));
+  // The start or stop posted an update (and may have checked off a plan item).
+  requestHuddleRefresh();
 }
 
 export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
