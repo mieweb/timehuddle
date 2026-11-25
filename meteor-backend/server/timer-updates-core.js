@@ -1,6 +1,6 @@
 /**
  * The wording of the automatic Huddle update a ticket timer posts when it
- * starts, switches, stops or resumes ("Started TH-12: Fix login"), and the one
+ * starts, switches, stops or resumes ("Working on TH-12: Fix login"), and the one
  * a change to today's plan posts ("Added TH-307 to today's plan"). Pure: no
  * Meteor, no database, so it is unit-tested directly.
  *
@@ -17,10 +17,12 @@ export const TimerUpdate = {
 };
 
 const WORDING = {
-  [TimerUpdate.STARTED]: (ticket) => `Started ${ticket}`,
-  [TimerUpdate.SWITCHED]: (ticket) => `Switched to ${ticket}`,
+  // Starting, switching to and resuming a ticket all read the same: Huddle
+  // draws the stint's time beside it, ticking until it stops.
+  [TimerUpdate.STARTED]: (ticket) => `Working on ${ticket}`,
+  [TimerUpdate.SWITCHED]: (ticket) => `Working on ${ticket}`,
   [TimerUpdate.STOPPED]: (ticket) => `Stopped ${ticket}`,
-  [TimerUpdate.RESUMED]: (ticket) => `Resumed ${ticket}`,
+  [TimerUpdate.RESUMED]: (ticket) => `Working on ${ticket}`,
 };
 
 /** A title is user text going into markdown: its own markup must not take effect. */
@@ -41,19 +43,15 @@ export function workedFor(seconds) {
 }
 
 /**
- * The update as markdown: one italic line with the ticket linked. A switch
- * that checked the previous ticket off today's plan says so, with the time
- * that ticket had this session: "Switched to TH-2 · TH-1 checked off at 1h 10m".
+ * The update as markdown: one italic line with the ticket linked, e.g.
+ * "Working on TH-2". A switch that checked the previous ticket off today's
+ * plan doesn't say so: that ticket's own update shows its time, stopped.
  * @param {string} action one of `TimerUpdate`
  * @param {{ ref: string, title: string | null, path: string }} label from
  *   `huddleTicketLabel` or `redmineIssueLabel` (ticket-label.js)
- * @param {{ checkedOff?: { label: { ref: string, title: string | null, path: string }, seconds: number } | null }} [extra]
  */
-export function timerUpdateText(action, label, { checkedOff = null } = {}) {
-  const done = checkedOff
-    ? ` · ${ticketLink(checkedOff.label)} checked off at ${workedFor(checkedOff.seconds)}`
-    : '';
-  return `*${WORDING[action](ticketLink(label))}${done}*`;
+export function timerUpdateText(action, label) {
+  return `*${WORDING[action](ticketLink(label))}*`;
 }
 
 /** What happened to an item of today's plan, each its own Huddle update (M4, #886). */

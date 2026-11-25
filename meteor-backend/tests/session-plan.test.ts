@@ -161,11 +161,13 @@ describe("today's plan on the session", () => {
 
     const posts = await updates();
     expect(posts).toHaveLength(3);
-    expect(posts[0]).toBe(`*Started [TH-1: Alpha](/app/tickets/${alpha})*`);
-    expect(posts[1]).toBe(
-      `*Switched to [TH-2: Bravo](/app/tickets/${bravo}) · [TH-1: Alpha](/app/tickets/${alpha}) checked off at 0m*`,
-    );
-    expect(posts[2]).toMatch(/^\*Switched to \[TH-1: Alpha\].* · \[TH-2: Bravo\].* checked off at 0m\*$/);
+    // Each switch is its own "Working on": the check-off it made isn't posted
+    // on its own, the ticket's earlier update shows its time, stopped.
+    expect(posts).toEqual([
+      `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
+      `*Working on [TH-2: Bravo](/app/tickets/${bravo})*`,
+      `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
+    ]);
 
     // The plan post is the agreed record: never edited to show progress.
     const db = await getDb();
@@ -297,7 +299,7 @@ describe("today's plan on the session", () => {
       await start(charlie.toHexString());
       expect(await checks()).toMatchObject({ [alpha]: true });
       expect(await updates()).toEqual([
-        `*Started [TH-1: Alpha](/app/tickets/${alpha})*`,
+        `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
         `*Checked off [TH-1: Alpha](/app/tickets/${alpha}) at 0m*`,
       ]);
     } finally {
@@ -318,7 +320,7 @@ describe("today's plan on the session", () => {
     );
     expect(await checks()).toMatchObject({ [alpha]: true });
     expect(await updates()).toEqual([
-      `*Started [TH-1: Alpha](/app/tickets/${alpha})*`,
+      `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
       `*Checked off [TH-1: Alpha](/app/tickets/${alpha}) at 0m*`,
     ]);
   });

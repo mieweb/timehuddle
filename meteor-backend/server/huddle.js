@@ -76,6 +76,10 @@ Meteor.startup(async () => {
       { deliveredAt: 1, deliverAt: 1 },
       { partialFilterExpression: { deliverAt: { $exists: true } } }
     );
+    // A "Working on …" update's timer, looked up by the post (postTimer).
+    await rawDb()
+      .collection('timers')
+      .createIndex({ huddlePostId: 1 }, { partialFilterExpression: { huddlePostId: { $exists: true } } });
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
@@ -268,6 +272,9 @@ async function enrichPost(post) {
   // (attachEnrichment); a single post looks up its own, none without a video.
   const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
 
+  // The timer a "Working on …" update started (attachTimers).
+  const timer = post.timer !== undefined ? post.timer : (await attachTimers([post]))[0].timer;
+
   return {
     id,
     teamId: post.teamId,
@@ -306,6 +313,9 @@ async function enrichPost(post) {
     // plan's stale `true` in the client cache, which merges fields.
     sessionUpdate: post.sessionUpdate === true,
     session,
+    // Always present: a live `changed` that left it out would keep a stale
+    // running timer in the client cache, which merges fields.
+    timer,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
@@ -362,6 +372,35 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** A timer session as a post shows it: when it started, and when it stopped (null while it runs). */
+function toPostTimer(timer) {
+  return { startTime: timer.startTime, endTime: timer.endTime ?? null };
+}
+
+/**
+ * The timer each "Working on …" update started, read off the timer session
+ * (`huddlePostId`, timer-updates.js) rather than copied onto the post, so the
+ * session stays the one source of its time. Scoped to the post's author.
+ * Mutates each post with a `timer`, null for a post that started none.
+ */
+async function attachTimers(posts) {
+  if (!posts.length) return posts;
+  const ids = posts.map((p) => (p._id?.toHexString ? p._id.toHexString() : String(p._id)));
+  const timers = await rawDb()
+    .collection('timers')
+    .find(
+      { huddlePostId: { $in: ids } },
+      { projection: { huddlePostId: 1, userId: 1, startTime: 1, endTime: 1 } },
+    )
+    .toArray();
+  const byPost = new Map(timers.map((t) => [t.huddlePostId, t]));
+  posts.forEach((post, i) => {
+    const timer = byPost.get(ids[i]);
+    post.timer = timer && timer.userId === post.userId ? toPostTimer(timer) : null;
+  });
+  return posts;
+}
+
 /** The ids of a post's PulseVault videos. */
 function postVideoIds(post) {
   return (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null));
@@ -386,6 +425,7 @@ async function attachEnrichment(posts) {
     fetchPostTickets(ticketIds),
     videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
+    attachTimers(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
@@ -451,9 +491,32 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   changeStream.on('error', (err) => {
     console.error('[huddle] change stream error:', err);
   });
+  // A "Working on …" update's timer is the timer session's (attachTimers): it
+  // learns its post just after the post is written, and stops later. Either
+  // change is sent as the post's `timer`, so its time stops live.
+  const timerStream = db.collection('timers').watch(
+    [
+      {
+        $match: {
+          operationType: 'update',
+          $or: [
+            { 'updateDescription.updatedFields.huddlePostId': { $exists: true } },
+            { 'updateDescription.updatedFields.endTime': { $exists: true } },
+          ],
+        },
+      },
+    ],
+    { fullDocument: 'updateLookup', ...(operationTime ? { startAtOperationTime: operationTime } : {}) },
+  );
+  timerStream.on('error', (err) => {
+    console.error('[huddle] timer change stream error:', err);
+  });
   this.onStop(() => {
     changeStream.close().catch(err => {
       console.error('[huddle] failed to close change stream:', err);
+    });
+    timerStream.close().catch((err) => {
+      console.error('[huddle] failed to close timer change stream:', err);
     });
   });
 
@@ -537,6 +600,13 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
     } catch (err) {
       console.error('[huddle] change stream error:', err);
     }
+  }));
+
+  timerStream.on('change', Meteor.bindEnvironment((change) => {
+    const timer = change.fullDocument;
+    const postId = timer?.huddlePostId;
+    if (!postId || !sentIds.has(postId)) return;
+    self.changed('huddlePosts', postId, { timer: toPostTimer(timer) });
   }));
 });
 

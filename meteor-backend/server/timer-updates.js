@@ -131,8 +131,9 @@ export async function teamTicketLabels(teamId, ticketIds) {
  * @param {{ remember?: boolean, at?: number, checkedOff?: CheckedOff | null }} [options]
  *   `at` is when it happened (epoch ms), for an update that must read before
  *   something else stamped at the same moment; the default is now.
- *   `checkedOff` is a ticket this switch checked off today's plan (M4), named
- *   in the same update when the plan is that team's (`namedCheckOff`).
+ *   `checkedOff` is a ticket this switch checked off today's plan (M4). When
+ *   the plan is that team's, this update stands for it (`namedCheckOff`): the
+ *   checked-off ticket's own update shows its time, stopped.
  * @returns {Promise<{ postId: string, teamId: string, namedCheckOff: boolean } | null>}
  *   null when nothing was posted
  */
@@ -147,17 +148,13 @@ export async function postTimerUpdate(action, session, { remember = false, at, c
     if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
     const ids = (await ticketIdsForTeams(rawDb(), [audience.teamId])).get(audience.teamId);
     const label = audience.label(ids, hostOf(optionalRedmineBaseUrl()));
-    const doneLabel =
-      checkedOff && checkedOff.teamId === audience.teamId
-        ? (await teamTicketLabels(audience.teamId, [checkedOff.ticketId])).get(checkedOff.ticketId)
-        : null;
+    // The plan's check-off this switch made, when the plan is this team's.
+    const standsForCheckOff = !!checkedOff && checkedOff.teamId === audience.teamId;
 
     const postId = await insertUpdatePost({
       teamId: audience.teamId,
       userId: session.userId,
-      text: timerUpdateText(action, label, {
-        checkedOff: doneLabel ? { label: doneLabel, seconds: checkedOff.seconds } : null,
-      }),
+      text: timerUpdateText(action, label),
       at,
     });
     if (remember) {
@@ -166,10 +163,10 @@ export async function postTimerUpdate(action, session, { remember = false, at, c
         .updateOne(
           { _id: new ObjectId(hex(session._id)) },
           // A check-off it names is posted on its own if the update is discarded.
-          { $set: { huddlePostId: postId, ...(doneLabel ? { huddleCheckedOff: checkedOff } : {}) } },
+          { $set: { huddlePostId: postId, ...(standsForCheckOff ? { huddleCheckedOff: checkedOff } : {}) } },
         );
     }
-    return { postId, teamId: audience.teamId, namedCheckOff: !!doneLabel };
+    return { postId, teamId: audience.teamId, namedCheckOff: standsForCheckOff };
   } catch (err) {
     console.error('[timer-updates] could not post the update:', err);
     return null;

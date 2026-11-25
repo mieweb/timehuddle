@@ -31,18 +31,19 @@ test.describe('Huddle updates for ticket timers', () => {
     await tickets.startTimerButton(title).click();
 
     await expect(page.getByText(`Started ${title}`, { exact: true })).toBeVisible();
-    // Named by its ticket ID and title: "Started TH-12: <title>" (#788).
+    // Named by its ticket ID and title: "Working on TH-12: <title>" (#788).
     await expect
       .poll(async () => (await findPostByText(`: ${title}](`))?.content.text ?? '')
-      .toMatch(/^\*Started \[[A-Z][A-Z0-9]*-\d+: /);
+      .toMatch(/^\*Working on \[[A-Z][A-Z0-9]*-\d+: /);
 
     await page.getByRole('button', { name: 'View post' }).click();
 
     await expect(page).toHaveURL(/\/app\/huddle/);
     const update = inboxMessage(page, `: ${title}`);
     await expect(update).toBeVisible({ timeout: 15000 });
-    // Just the text: no timer button or running time in the update (#886).
-    await expect(update).toContainText(/Started [A-Z][A-Z0-9]*-\d+/);
+    // The update shows the stint's time, ticking while it runs; no timer button.
+    await expect(update).toContainText(/Working on [A-Z][A-Z0-9]*-\d+/);
+    await expect(update.getByRole('timer', { name: /, running$/ })).toBeVisible();
     await expect(update.getByRole('button', { name: /^Stop timer for / })).toHaveCount(0);
 
     // The ticket's name is a link, and it opens the ticket here, not in a new tab.
@@ -70,7 +71,7 @@ test.describe('Huddle updates for ticket timers', () => {
     await page.getByRole('button', { name: 'Discard update' }).click();
 
     await expect(tickets.startTimerButton(title)).toBeVisible();
-    // The "Started" update is gone, and no "Stopped" one took its place.
+    // The "Working on" update is gone, and no "Stopped" one took its place.
     await expect.poll(() => findPostByText(`: ${title}](`)).toBeNull();
   });
 

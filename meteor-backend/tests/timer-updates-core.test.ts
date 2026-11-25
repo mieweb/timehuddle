@@ -39,33 +39,21 @@ describe('timerUpdateText', () => {
         TimerUpdate.STARTED,
         label({ title: null, linkedIssue: { id: '656', host: REDMINE_HOST } }),
       ),
-    ).toBe(`*Started [RMX-656](/app/tickets/${ID})*`);
+    ).toBe(`*Working on [RMX-656](/app/tickets/${ID})*`);
   });
 
   it('has a wording for each action', () => {
     const ticket = redmineIssueLabel('7', IDS.sourcePrefixes, REDMINE_HOST);
-    expect(timerUpdateText(TimerUpdate.STARTED, ticket)).toContain('Started [RMX-7]');
-    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Switched to [RMX-7]');
+    // Starting, switching to and resuming a ticket all say you're working on it.
+    expect(timerUpdateText(TimerUpdate.STARTED, ticket)).toContain('Working on [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Working on [RMX-7]');
     expect(timerUpdateText(TimerUpdate.STOPPED, ticket)).toContain('Stopped [RMX-7]');
-    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Resumed [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Working on [RMX-7]');
   });
 
   it('keeps markup in a title from taking effect', () => {
     expect(timerUpdateText(TimerUpdate.STARTED, label({ title: '*a* [b](c)' }))).toBe(
-      `*Started [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
-    );
-  });
-});
-
-describe('a switch that checks a ticket off (#886)', () => {
-  it('names the ticket checked off and its time', () => {
-    const other = huddleTicketLabel({ _id: 'b'.repeat(24), title: 'Docs', number: 9 }, IDS, null);
-    expect(
-      timerUpdateText(TimerUpdate.SWITCHED, label({}), {
-        checkedOff: { label: other, seconds: 70 * 60 + 59 },
-      }),
-    ).toBe(
-      `*Switched to [TH-123: Fix login](/app/tickets/${ID}) · [TH-9: Docs](/app/tickets/${'b'.repeat(24)}) checked off at 1h 10m*`,
+      `*Working on [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
     );
   });
 });

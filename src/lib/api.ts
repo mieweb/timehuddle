@@ -1384,6 +1384,8 @@ export interface HuddlePost {
   sessionUpdate?: boolean;
   /** Resolved from `clockEventId` at read time; absent if the session is gone. */
   session?: { startTime: number; endTime: number | null };
+  /** The timer a "Working on …" update started, read from it at read time; null for any other post. */
+  timer?: { startTime: number; endTime: number | null } | null;
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
   /** Scheduled post (#596): only its author sees it, and nobody is notified, until then. */

@@ -2,8 +2,8 @@
  * The plan post as the day's launching point (M4, #886): in your own plan
  * post for the session you're clocked in to, each ticket chip gets its timer
  * button — ▶ to start it, ⏸ while it runs. Wraps the references plugin's
- * link: every other link, and every other post — the "Started …" and
- * "Switched to …" updates included — renders exactly as it did.
+ * link: every other link, and every other post — the "Working on …"
+ * updates included — renders exactly as it did.
  *
  * Which posts qualify and how a start runs come from `PlanStartProvider`,
  * read by each link through context, so the render plugins stay stable

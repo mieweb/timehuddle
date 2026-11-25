@@ -100,7 +100,7 @@ afterAll(async () => {
 });
 
 describe('timer updates in Huddle', () => {
-  it('posts "Started" to the ticket’s team, as the person, untied to the clock session', async () => {
+  it('posts "Working on" to the ticket’s team, as the person, untied to the clock session', async () => {
     const res = await start(ticketA);
     expect(res.ok).toBe(true);
     expect(res.result.update?.teamId).toBe(teamId);
@@ -110,7 +110,7 @@ describe('timer updates in Huddle', () => {
       .collection('huddlePosts')
       .findOne({ _id: new ObjectId(res.result.update!.postId) });
     expect(post!.userId).toBe(userId);
-    expect(post!.content.text).toBe(`*Started ${link('Alpha', ticketA)}*`);
+    expect(post!.content.text).toBe(`*Working on ${link('Alpha', ticketA)}*`);
     // A session's plan is its first post; an update must never be taken for one.
     expect(post!.clockEventId).toBeUndefined();
   });
@@ -119,7 +119,7 @@ describe('timer updates in Huddle', () => {
     const numbered = await insertTicket('Charlie', { number: 41 });
     await start(numbered);
 
-    expect(await updates()).toEqual([`*Started [TH-41: Charlie](/app/tickets/${numbered})*`]);
+    expect(await updates()).toEqual([`*Working on [TH-41: Charlie](/app/tickets/${numbered})*`]);
   });
 
   it('posts the title of a ticket carrying a Redmine issue (#788)', async () => {
@@ -130,17 +130,38 @@ describe('timer updates in Huddle', () => {
     await start(carried);
 
     // The team's org names no Redmine server, so the ticket keeps its own ID.
-    expect(await updates()).toEqual([`*Started [TH-42: Delta](/app/tickets/${carried})*`]);
+    expect(await updates()).toEqual([`*Working on [TH-42: Delta](/app/tickets/${carried})*`]);
   });
 
-  it('posts one "Switched to" for the ticket switched to', async () => {
+  it('posts one "Working on" for the ticket switched to', async () => {
     await start(ticketA);
     await start(ticketB);
 
     expect(await updates()).toEqual([
-      `*Started ${link('Alpha', ticketA)}*`,
-      `*Switched to ${link('Bravo', ticketB)}*`,
+      `*Working on ${link('Alpha', ticketA)}*`,
+      `*Working on ${link('Bravo', ticketB)}*`,
     ]);
+  });
+
+  it("reads each update with its stint's timer: running, then stopped by the switch", async () => {
+    const first = await start(ticketA);
+    const second = await start(ticketB);
+    const timerOf = async (postId: string) => {
+      const res = await wormhole<{ posts: { id: string; timer: unknown }[] }>(
+        'huddle.getPosts',
+        { teamId, since: new Date(Date.now() - 60_000).toISOString() },
+        jwt,
+      );
+      expect(res.ok).toBe(true);
+      return res.result.posts.find((post) => post.id === postId)?.timer;
+    };
+
+    const switchedFrom = await timerOf(first.result.update!.postId);
+    expect(switchedFrom).toMatchObject({ startTime: expect.any(Number), endTime: expect.any(Number) });
+    expect(await timerOf(second.result.update!.postId)).toMatchObject({
+      startTime: expect.any(Number),
+      endTime: null,
+    });
   });
 
   it('posts "Stopped" when the timer is stopped', async () => {
@@ -163,37 +184,31 @@ describe('timer updates in Huddle', () => {
     expect(await updates()).toHaveLength(1);
   });
 
-  it('a break posts "Stopped", and coming back posts "Resumed"', async () => {
+  it('a break posts "Stopped", and coming back posts "Working on" again', async () => {
     await start(ticketA);
     expect((await wormhole('clock.pause', { teamId }, jwt)).ok).toBe(true);
     expect((await wormhole('clock.resume', { teamId }, jwt)).ok).toBe(true);
 
     expect(await updates()).toEqual([
-      `*Started ${link('Alpha', ticketA)}*`,
+      `*Working on ${link('Alpha', ticketA)}*`,
       `*Stopped ${link('Alpha', ticketA)}*`,
-      `*Resumed ${link('Alpha', ticketA)}*`,
+      `*Working on ${link('Alpha', ticketA)}*`,
     ]);
   });
 
-  it('clocking out posts "Stopped" for the running ticket, timed before the clock-out', async () => {
+  it('clocking out posts nothing for the running ticket: its update shows the time, stopped', async () => {
     await start(ticketA);
     const out = await wormhole<{ endTime: number }>('clock.stop', { teamId }, jwt);
     expect(out.ok).toBe(true);
 
-    const db = await getDb();
-    const stopped = await db
-      .collection('huddlePosts')
-      .findOne({ teamId, 'content.text': `*Stopped ${link('Alpha', ticketA)}*` });
-    expect(stopped).not.toBeNull();
-    // The feed orders by time: the timer stops, then "Clocked out at…".
-    expect(new Date(stopped!.createdAt).getTime()).toBeLessThan(out.result.endTime);
+    expect(await updates()).toEqual([`*Working on ${link('Alpha', ticketA)}*`]);
   });
 
   it('a discarded switch removes the short ticket’s update and reads as a start', async () => {
     const short = await start(ticketA);
     await start(ticketB, { discardSessionId: short.result.session.id });
 
-    expect(await updates()).toEqual([`*Started ${link('Bravo', ticketB)}*`]);
+    expect(await updates()).toEqual([`*Working on ${link('Bravo', ticketB)}*`]);
   });
 
   it('a discard naming a session that is no longer the running one discards nothing', async () => {
@@ -204,9 +219,9 @@ describe('timer updates in Huddle', () => {
     await start(ticketC, { discardSessionId: asked.result.session.id });
 
     expect(await updates()).toEqual([
-      `*Started ${link('Alpha', ticketA)}*`,
-      `*Switched to ${link('Bravo', ticketB)}*`,
-      `*Switched to ${link('Charlie', ticketC)}*`,
+      `*Working on ${link('Alpha', ticketA)}*`,
+      `*Working on ${link('Bravo', ticketB)}*`,
+      `*Working on ${link('Charlie', ticketC)}*`,
     ]);
   });
 

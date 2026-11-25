@@ -81,6 +81,7 @@ import {
   withPlanStart,
   type PlanStart,
 } from '../features/huddle/planStartPlugin';
+import { WorkingTimersProvider, withWorkingTimer } from '../features/huddle/workingTimerPlugin';
 import { usePlanTicketStart } from '../features/clock/usePlanTicketStart';
 import { useSessionPlan } from '../features/clock/useSessionPlan';
 import { clockText } from '../features/clock/clockStrings';
@@ -748,12 +749,15 @@ export default function Huddle() {
       createCodePlugin(),
       imagePlugin,
       createMermaidPlugin(),
-      // In your plan post for the session you're in, a ticket chip has a ▶ (M4).
-      withPlanStart(
-        createReferencesPlugin({
-          triggers: [PERSON_LINKS, TICKET_LINKS],
-          onOpen: (reference) => navigate(reference.href),
-        }),
+      // In your plan post for the session you're in, a ticket chip has a ▶
+      // (M4); a "Working on …" update has its stint's time beside it.
+      withWorkingTimer(
+        withPlanStart(
+          createReferencesPlugin({
+            triggers: [PERSON_LINKS, TICKET_LINKS],
+            onOpen: (reference) => navigate(reference.href),
+          }),
+        ),
       ),
     ],
     [navigate],
@@ -797,6 +801,11 @@ export default function Huddle() {
     ticketTimerBusy,
     runningTicket,
   ]);
+  const workingTimers = useMemo(
+    () =>
+      new Map(activePosts.flatMap((post) => (post.timer ? [[post.id, post.timer] as const] : []))),
+    [activePosts],
+  );
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
   // Who owns each video in view, for Rename: its owner, not whoever posted it
@@ -1426,154 +1435,156 @@ export default function Huddle() {
                 !postUnavailable &&
                 user && (
                   <PlanStartProvider value={planStart}>
-                    <SuperChatInbox
-                      // One box for the thread's cards, ours and SuperChat's.
-                      mediaMaxSize={VIDEO_CARD_SIZE}
-                      // An edited message's × says what the message box's does.
-                      mediaLabels={EDIT_MEDIA_LABELS}
-                      // Posting uploads each picked File; a base64 copy of a large
-                      // video is more than a browser string, or a phone, can hold.
-                      attachmentDataUrls={false}
-                      conversations={conversations}
-                      activeConversationId={activeConversation?.id}
-                      onConversationOpened={(conversation) => openConversation(conversation.id)}
-                      currentParticipantId={user.id}
-                      virtualized
-                      // On a phone, open straight into the conversation (Today) rather than the list.
-                      defaultMobileView="chat"
-                      // Drag the divider to widen the list; the width survives a reload.
-                      resizableSidebar
-                      sidebarWidth={sidebarWidth}
-                      onSidebarWidthChange={setSidebarWidth}
-                      listFooter={
-                        // The starter stands in for an empty feed, but an empty window can still have history behind it — or a failed fetch that never said.
-                        activePosts.length > 0 ||
-                        feedWindow.hasMore === true ||
-                        feedWindow.loadFailed ? (
-                          <LoadOlderSentinel
-                            hasMore={feedWindow.hasMore}
-                            loading={feedWindow.loadingOlder}
-                            failed={feedWindow.loadFailed}
-                            onVisible={feedWindow.loadOlder}
-                            onRetry={() => {
-                              feedWindow.retry();
-                              void refreshActiveScope();
-                            }}
-                          />
-                        ) : undefined
-                      }
-                      renderPlugins={renderPlugins}
-                      renderMessageMedia={renderMessageMedia}
-                      mediaFeedProps={mediaFeedProps}
-                      acceptedFileTypes={['image', 'video', 'pdf', 'document']}
-                      onComposerError={handleComposerError}
-                      onMessageSent={(text, { conversation, attachments, sendOption }) =>
-                        handleMessageSent(text, attachments, conversation.id, sendOption)
-                      }
-                      onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
-                        void handleMessageEdited(messageId, text, { removedMedia, removedFiles })
-                      }
-                      composerProps={{
-                        // Input on its own row, labelled buttons underneath.
-                        layout: 'stacked',
-                        // Pulse sits in this row; say it's another way to post.
-                        placeholder: postingTeamId
-                          ? 'Share an update, or post a Pulse…'
-                          : 'Share an update…',
-                        // 500 MB for a video (PulseVault), 100 MB for anything else.
-                        maxFileSize: attachmentSizeLimit,
-                        // Each file uploads as it's attached, in place; removing
-                        // it before sending takes it back.
-                        uploadAttachment: uploadAttachment,
-                        discardAttachment: discardAttachment,
-                        uploadLabels: UPLOAD_TEXT,
-                        // A ticket is a post on its own.
-                        canSendWhenEmpty: selectedTicketIds.length > 0,
-                        // Also busy while staged content is still settling: a send
-                        // rejected then would lose the picked files, which the
-                        // composer clears before `onSend` (gap 4.14).
-                        isSending: sending || ticketVideos.loading,
-                        mentionOptions: [
-                          ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
-                          ...mentions.options,
-                        ],
-                        triggers: postingTeamId ? [ticketTrigger] : undefined,
-                        sendOptions: postingTeamId
-                          ? [
-                              {
-                                id: SEND_LATER,
-                                label: SCHEDULE_TEXT.sendLater,
-                                icon: <FontAwesomeIcon icon={faClock} aria-hidden="true" />,
-                              },
-                            ]
-                          : undefined,
-                        leadingSlot: (
-                          // ChatComposer's leadingSlot wrapper has no gap of its own, and the
-                          // CSS module lets its two children join the composer's row.
-                          <>
-                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                              {postingTeamId && (
-                                <TicketPicker
-                                  teamId={postingTeamId}
-                                  onSelect={addTicket}
-                                  selectedIds={selectedTicketIds}
+                    <WorkingTimersProvider value={workingTimers}>
+                      <SuperChatInbox
+                        // One box for the thread's cards, ours and SuperChat's.
+                        mediaMaxSize={VIDEO_CARD_SIZE}
+                        // An edited message's × says what the message box's does.
+                        mediaLabels={EDIT_MEDIA_LABELS}
+                        // Posting uploads each picked File; a base64 copy of a large
+                        // video is more than a browser string, or a phone, can hold.
+                        attachmentDataUrls={false}
+                        conversations={conversations}
+                        activeConversationId={activeConversation?.id}
+                        onConversationOpened={(conversation) => openConversation(conversation.id)}
+                        currentParticipantId={user.id}
+                        virtualized
+                        // On a phone, open straight into the conversation (Today) rather than the list.
+                        defaultMobileView="chat"
+                        // Drag the divider to widen the list; the width survives a reload.
+                        resizableSidebar
+                        sidebarWidth={sidebarWidth}
+                        onSidebarWidthChange={setSidebarWidth}
+                        listFooter={
+                          // The starter stands in for an empty feed, but an empty window can still have history behind it — or a failed fetch that never said.
+                          activePosts.length > 0 ||
+                          feedWindow.hasMore === true ||
+                          feedWindow.loadFailed ? (
+                            <LoadOlderSentinel
+                              hasMore={feedWindow.hasMore}
+                              loading={feedWindow.loadingOlder}
+                              failed={feedWindow.loadFailed}
+                              onVisible={feedWindow.loadOlder}
+                              onRetry={() => {
+                                feedWindow.retry();
+                                void refreshActiveScope();
+                              }}
+                            />
+                          ) : undefined
+                        }
+                        renderPlugins={renderPlugins}
+                        renderMessageMedia={renderMessageMedia}
+                        mediaFeedProps={mediaFeedProps}
+                        acceptedFileTypes={['image', 'video', 'pdf', 'document']}
+                        onComposerError={handleComposerError}
+                        onMessageSent={(text, { conversation, attachments, sendOption }) =>
+                          handleMessageSent(text, attachments, conversation.id, sendOption)
+                        }
+                        onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
+                          void handleMessageEdited(messageId, text, { removedMedia, removedFiles })
+                        }
+                        composerProps={{
+                          // Input on its own row, labelled buttons underneath.
+                          layout: 'stacked',
+                          // Pulse sits in this row; say it's another way to post.
+                          placeholder: postingTeamId
+                            ? 'Share an update, or post a Pulse…'
+                            : 'Share an update…',
+                          // 500 MB for a video (PulseVault), 100 MB for anything else.
+                          maxFileSize: attachmentSizeLimit,
+                          // Each file uploads as it's attached, in place; removing
+                          // it before sending takes it back.
+                          uploadAttachment: uploadAttachment,
+                          discardAttachment: discardAttachment,
+                          uploadLabels: UPLOAD_TEXT,
+                          // A ticket is a post on its own.
+                          canSendWhenEmpty: selectedTicketIds.length > 0,
+                          // Also busy while staged content is still settling: a send
+                          // rejected then would lose the picked files, which the
+                          // composer clears before `onSend` (gap 4.14).
+                          isSending: sending || ticketVideos.loading,
+                          mentionOptions: [
+                            ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
+                            ...mentions.options,
+                          ],
+                          triggers: postingTeamId ? [ticketTrigger] : undefined,
+                          sendOptions: postingTeamId
+                            ? [
+                                {
+                                  id: SEND_LATER,
+                                  label: SCHEDULE_TEXT.sendLater,
+                                  icon: <FontAwesomeIcon icon={faClock} aria-hidden="true" />,
+                                },
+                              ]
+                            : undefined,
+                          leadingSlot: (
+                            // ChatComposer's leadingSlot wrapper has no gap of its own, and the
+                            // CSS module lets its two children join the composer's row.
+                            <>
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                {postingTeamId && (
+                                  <TicketPicker
+                                    teamId={postingTeamId}
+                                    onSelect={addTicket}
+                                    selectedIds={selectedTicketIds}
+                                  />
+                                )}
+                                <TicketVideoChips videos={ticketVideos.videos} />
+                                <ComposerChips
+                                  selectedTickets={selectedTickets}
+                                  onTicketRemove={removeTicket}
+                                  attachments={[]}
+                                  onAttachmentRemove={() => {}}
                                 />
-                              )}
-                              <TicketVideoChips videos={ticketVideos.videos} />
-                              <ComposerChips
-                                selectedTickets={selectedTickets}
-                                onTicketRemove={removeTicket}
-                                attachments={[]}
-                                onAttachmentRemove={() => {}}
-                              />
-                              <ScheduledPostsButton
-                                posts={myScheduledPosts}
-                                onSendNow={async (post) => {
-                                  await huddleApi.sendScheduledNow(post.id);
-                                  await refreshActiveScope();
-                                }}
-                                onReschedule={async (post, next) => {
-                                  await huddleApi.reschedulePost(post.id, {
-                                    deliverAt: next.deliverAt.toISOString(),
-                                    postDate: toDateString(next.deliverAt),
-                                  });
-                                  await refreshActiveScope();
-                                }}
-                                onDelete={async (post) => {
-                                  await huddleApi.deletePost(post.id);
-                                  await refreshActiveScope();
-                                }}
-                              />
-                            </div>
-                            {/* After the composer's +, behind a "/" (or): a Pulse video posts
+                                <ScheduledPostsButton
+                                  posts={myScheduledPosts}
+                                  onSendNow={async (post) => {
+                                    await huddleApi.sendScheduledNow(post.id);
+                                    await refreshActiveScope();
+                                  }}
+                                  onReschedule={async (post, next) => {
+                                    await huddleApi.reschedulePost(post.id, {
+                                      deliverAt: next.deliverAt.toISOString(),
+                                      postDate: toDateString(next.deliverAt),
+                                    });
+                                    await refreshActiveScope();
+                                  }}
+                                  onDelete={async (post) => {
+                                    await huddleApi.deletePost(post.id);
+                                    await refreshActiveScope();
+                                  }}
+                                />
+                              </div>
+                              {/* After the composer's +, behind a "/" (or): a Pulse video posts
                               itself when it lands, so nothing typed here goes with it. Refetch
                               in case the live feed missed it (DDP dropped while in the Pulse
                               app). Keyed by team so one team's link doesn't announce under
                               another. */}
-                            {postingTeamId && (
-                              <div
-                                className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
-                              >
-                                <span
-                                  className={`huddle-composer-or px-1 text-sm text-muted-foreground ${styles.pulseOr}`}
-                                  aria-hidden="true"
+                              {postingTeamId && (
+                                <div
+                                  className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
                                 >
-                                  /
-                                </span>
-                                <PulseButton
-                                  key={postingTeamId}
-                                  destination={{ kind: 'huddle', teamId: postingTeamId }}
-                                  ariaLabel="Post a video with Pulse"
-                                  onSettled={() => void refreshActiveScope()}
-                                />
-                              </div>
-                            )}
-                          </>
-                        ),
-                      }}
-                      // No outer border or rounding: the inbox sits on the page as the page.
-                      className={`min-h-0 flex-1 rounded-none border-0 ${styles.inbox}`}
-                    />
+                                  <span
+                                    className={`huddle-composer-or px-1 text-sm text-muted-foreground ${styles.pulseOr}`}
+                                    aria-hidden="true"
+                                  >
+                                    /
+                                  </span>
+                                  <PulseButton
+                                    key={postingTeamId}
+                                    destination={{ kind: 'huddle', teamId: postingTeamId }}
+                                    ariaLabel="Post a video with Pulse"
+                                    onSettled={() => void refreshActiveScope()}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          ),
+                        }}
+                        // No outer border or rounding: the inbox sits on the page as the page.
+                        className={`min-h-0 flex-1 rounded-none border-0 ${styles.inbox}`}
+                      />
+                    </WorkingTimersProvider>
                   </PlanStartProvider>
                 )}
               {addBackPrompt}
