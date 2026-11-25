@@ -1,7 +1,6 @@
 /**
- * Today's plan as My Board rows see it (M4, #886): which tickets are in the
- * plan of the session you're clocked in to, whether each is checked off, and
- * which one is running since when. TicketsPage provides it; a row reads its
+ * Today's plan as My Board rows see it (M4, #886): each plan ticket's time
+ * in the session you're clocked in to, and which one is running since when. TicketsPage provides it; a row reads its
  * own entry, so the list between them needs no extra props.
  */
 import { createContext, useContext } from 'react';
@@ -11,8 +10,6 @@ import type { RunningTicket } from '../../lib/useRunningTicket';
 import { ticketKey } from './sources';
 
 export interface TodayPlanRow {
-  /** In today's plan: whether it's checked off. Null when it isn't in the plan. */
-  checked: boolean | null;
   /** When its time this session would have started had it run unbroken, epoch ms; null when it isn't running. */
   runningSince: number | null;
   /** In today's plan: its time this session before any current stint. Null when it isn't in the plan. */
@@ -20,9 +17,7 @@ export interface TodayPlanRow {
 }
 
 export interface TodayPlanRows {
-  /** By `${sourceId}:${id}`, as `UnifiedTicket.key`. */
-  planned: ReadonlyMap<string, boolean>;
-  /** Each plan ticket's time this session, stints already ended. */
+  /** Each plan ticket's time this session, stints already ended, by `${sourceId}:${id}`. */
   seconds: ReadonlyMap<string, number>;
   running: { key: string; since: number } | null;
 }
@@ -36,18 +31,15 @@ export function todayPlanRows(
   plan: SessionPlan | null,
   running: RunningTicket | null,
 ): TodayPlanRows {
-  const planned = new Map<string, boolean>();
   const earlierSeconds = new Map<string, number>();
   for (const item of plan?.items ?? []) {
     if (!('ticketId' in item)) continue;
     const key = ticketKey('huddle', item.ticketId);
-    planned.set(key, item.checked);
     earlierSeconds.set(key, item.seconds);
   }
-  if (!running) return { planned, seconds: earlierSeconds, running: null };
+  if (!running) return { seconds: earlierSeconds, running: null };
   const earlier = (earlierSeconds.get(running.key) ?? 0) * 1000;
   return {
-    planned,
     seconds: earlierSeconds,
     running: { key: running.key, since: running.startTime - earlier },
   };
@@ -60,7 +52,6 @@ export const TodayPlanRowsProvider = TodayPlanRowsContext.Provider;
 export function useTodayPlanRow(key: string): TodayPlanRow {
   const rows = useContext(TodayPlanRowsContext);
   return {
-    checked: rows?.planned.get(key) ?? null,
     runningSince: rows?.running?.key === key ? rows.running.since : null,
     seconds: rows?.seconds.get(key) ?? null,
   };

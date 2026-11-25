@@ -145,6 +145,9 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
 const viewPanelClass = (showing: boolean) =>
   `tickets-view-panel min-h-0 flex-1 flex-col gap-3 ${showing ? 'flex' : 'hidden'}`;
 
+/** How long after a session ends its pins are read again, once the server has unpinned. */
+const PINS_SETTLE_MS = 3000;
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -416,6 +419,20 @@ export const TicketsPage: React.FC = () => {
     boardLoaded,
     boardKnown,
   } = useMyBoardKeys(userId);
+  // Clocking out unpins what the plan checked off (M5, #887), wherever it
+  // happened — the Clock page, or Pulse on the server — so read the pins again.
+  // The session's end is published just before the server unpins, so once
+  // more a moment later.
+  const clockEventId = activeClockEvent?.id ?? null;
+  const lastClockEventId = useRef(clockEventId);
+  useEffect(() => {
+    const ended = lastClockEventId.current && !clockEventId;
+    lastClockEventId.current = clockEventId;
+    if (!ended) return;
+    loadBoard();
+    const again = window.setTimeout(loadBoard, PINS_SETTLE_MS);
+    return () => window.clearTimeout(again);
+  }, [clockEventId, loadBoard]);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
   const boardLoading = ticketsLoading || !boardLoaded;
@@ -512,8 +529,9 @@ export const TicketsPage: React.FC = () => {
   // dropdown (#736c).
   const [searchQuery, setSearchQuery] = useState('');
 
-  // On a phone the controls above the list fold away while it's scrolled down,
-  // so the list has the room; they're back at the top, and while searching.
+  // On a phone the view switcher and the list's filter bar fold away while it's
+  // scrolled down, so the list has the room; New ticket and the search stay.
+  // They're back at the top, and while searching.
   // Fold past 48px, unfold under 8px: the list growing as they fold can't
   // flip it back.
   const phone = useMediaQuery('(max-width: 767px)');
@@ -1148,6 +1166,7 @@ export const TicketsPage: React.FC = () => {
   // What both tabs' lists share; each tab adds its own view and labels.
   const sharedListProps = {
     selecting: selectionOn,
+    headerFolded,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -1206,15 +1225,7 @@ export const TicketsPage: React.FC = () => {
             {/* One toolbar for both ticket lists: it stays put when the tab changes.
               My Week is a timesheet, so it has none. */}
             {activeView !== 'week' && (
-              <div
-                inert={headerFolded}
-                className={cn(
-                  'tickets-toolbar sticky top-0 z-20 -mx-4 flex shrink-0 items-center gap-2 border-neutral-200 bg-neutral-50/95 px-4 backdrop-blur transition-[max-height,opacity,margin,padding] duration-200 supports-backdrop-filter:bg-neutral-50/80 motion-reduce:transition-none dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0',
-                  headerFolded
-                    ? 'mb-0 max-h-0 overflow-hidden border-b-0 py-0 opacity-0'
-                    : 'mb-3 max-h-24 border-b py-2 opacity-100',
-                )}
-              >
+              <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
                 {newTicketButton}
 
                 <RedmineSuggestions

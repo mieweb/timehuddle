@@ -345,9 +345,9 @@ describe('postsToConversations', () => {
       expect(labelOf(posts, 'reply')).not.toContain('Plan');
     });
 
-    it('labels the wrap-up post and leaves an earlier reply unlabeled', () => {
+    it('labels the plan and its own wrap-up post', () => {
       const posts = [
-        makePost({ id: 'reply', clockEventId: 'evt-1', session }),
+        makePost({ id: 'plan', clockEventId: 'evt-1', session }),
         makePost({
           id: 'wrapup',
           clockEventId: 'evt-1',
@@ -356,7 +356,27 @@ describe('postsToConversations', () => {
           wrapUpAt: new Date(SEP_29_1032).toISOString(),
         }),
       ];
+      expect(labelOf(posts, 'plan')).toContain('Plan');
       expect(labelOf(posts, 'wrapup')).toContain('Wrap-up');
+    });
+
+    it('reads a plan post that carries the wrap-up (written before #887) as the wrap-up', () => {
+      const posts = [
+        makePost({
+          id: 'plan',
+          clockEventId: 'evt-1',
+          session,
+          wrapUpAt: new Date(SEP_29_1032).toISOString(),
+        }),
+        makePost({
+          id: 'reply',
+          clockEventId: 'evt-1',
+          session,
+          createdAt: new Date(SEP_29_1032).toISOString(),
+        }),
+      ];
+      expect(labelOf(posts, 'plan')).toContain('Wrap-up');
+      expect(labelOf(posts, 'plan')).not.toContain('Plan');
       expect(labelOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
     });
 

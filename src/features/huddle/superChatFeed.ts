@@ -387,24 +387,25 @@ function withDayDividers(thread: SuperChatMessage[]): SuperChatMessage[] {
 }
 
 /**
- * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
- * that isn't an update (same pick as the backend's SESSION_POST_SORT and
- * SESSION_POST_FILTER). Any other post in a session is an update.
+ * Each session's plan and wrap-up posts: its earliest post that isn't an
+ * update (the plan), and any post carrying the wrap-up. A wrap-up is its own
+ * post; one written before that (#887) is on the plan post itself, which then
+ * reads as the wrap-up. Any other post in a session is an update.
  */
 function sessionPostIds(posts: HuddlePost[]): Set<string> {
-  const bySession = new Map<string, HuddlePost>();
+  const plans = new Map<string, HuddlePost>();
+  const ids = new Set<string>();
   for (const post of posts) {
     // An update posted while clocked in is in the session but never its plan.
     if (!post.clockEventId || post.sessionUpdate) continue;
-    const current = bySession.get(post.clockEventId);
-    const better =
-      !current ||
-      (!!post.wrapUpAt !== !!current.wrapUpAt
-        ? !!post.wrapUpAt
-        : new Date(post.createdAt).getTime() < new Date(current.createdAt).getTime());
-    if (better) bySession.set(post.clockEventId, post);
+    if (post.wrapUpAt) ids.add(post.id);
+    const current = plans.get(post.clockEventId);
+    if (!current || new Date(post.createdAt).getTime() < new Date(current.createdAt).getTime()) {
+      plans.set(post.clockEventId, post);
+    }
   }
-  return new Set([...bySession.values()].map((p) => p.id));
+  for (const plan of plans.values()) ids.add(plan.id);
+  return ids;
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · [TH-7: Onboarding checklist](/app/tickets/…)". */

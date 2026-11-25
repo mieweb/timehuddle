@@ -50,6 +50,7 @@ import {
   notifyClockOut,
   userDisplayName,
 } from './notify-core';
+import { carryOverPins } from './carry-over';
 import { endSnoozeUntilClockIn } from './notification-prefs';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
@@ -1074,6 +1075,10 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     const closedBreaks = await findBreaksForEvent(eventId);
     const updated = await ClockEvents.findOneAsync(event._id);
     const pub = toPublicClockEvent(updated, closedBreaks);
+
+    // Checked-off plan items leave Pinned; the rest stay for the next session.
+    await stillOwned();
+    await carryOverPins(userId, updated);
 
     if (team) {
       await stillOwned();

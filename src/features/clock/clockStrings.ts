@@ -124,6 +124,12 @@ export const clockText = {
     `${title} isn't in today's plan anymore. Add it back so your plan shows you're working on it, or just start its timer.`,
   addBackAndStart: 'Add back and start',
   justStart: 'Just start',
+  /** Clocking out while a ticket of today's plan is running (M5). */
+  runningAtClockOutTitle: 'Done with this ticket?',
+  runningAtClockOutBody: (title: string) =>
+    `${title} is still running. Check it off to take it out of Pinned, or keep it unchecked to carry it over to your next session.`,
+  checkOffRunning: 'Check it off',
+  keepRunningPinned: 'Keep for next session',
   /** The running ticket's badge under the clock: its name and live time. */
   runningTicketTime: (title: string, time: string) => `${title} · ${time}`,
 } as const;

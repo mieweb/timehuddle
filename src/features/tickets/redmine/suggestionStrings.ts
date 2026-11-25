@@ -12,6 +12,8 @@ export const suggestionText = {
   searchLabel: 'Search tickets and Redmine issues',
   placeholder: 'Search, #number, @person, or paste a link',
   menuLabel: 'Redmine suggestions',
+  /** Closes the app's full-screen search. */
+  cancel: 'Cancel',
 
   ticketsHeading: 'Tickets',
   inTeam: (team: string) => `In ${team}`,

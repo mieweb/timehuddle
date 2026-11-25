@@ -33,7 +33,7 @@ import {
   DropdownSeparator,
   Tooltip,
 } from '@mieweb/ui';
-import { CircleCheck, CircleUser, ClipboardCopy, ClipboardX, Pin, PinOff } from 'lucide-react';
+import { CircleUser, ClipboardCopy, ClipboardX, Pin, PinOff } from 'lucide-react';
 import React, { useCallback } from 'react';
 
 import { timeAgo } from '../../lib/date';
@@ -250,12 +250,6 @@ export const TicketRow: React.FC<TicketRowProps> = ({
 
   const properties = (
     <span className="ticket-row-facts contents [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
-      {planRow.checked !== null && (
-        <Badge variant={planRow.checked ? 'secondary' : 'outline'} size="sm">
-          {planRow.checked && <CircleCheck className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />}
-          {planRow.checked ? boardText.checkedOff : boardText.inTodaysPlan}
-        </Badge>
-      )}
       {/* Names, not avatars: initials alone say less, and there is no hover on a phone. */}
       {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => {
         const badge = (

@@ -87,6 +87,7 @@ import { useRecentSessions } from './useRecentSessions';
 import { useSessionPlan } from './useSessionPlan';
 import { createOwnLineKit } from './ownLineKit';
 import { usePlanTaskEditor } from './usePlanTaskEditor';
+import { useRunningPlanTicketCheck } from './useRunningPlanTicketCheck';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
@@ -180,6 +181,8 @@ export const ClockPage: React.FC = () => {
   // Once clocked in, the editor the plan was written in shows it as a
   // checklist: each ticket a line with its ▶/⏸ and running time (M4).
   const planEditor = usePlanTaskEditor(sessionPlan, runningTicket);
+  // Clocking out with a plan ticket still running asks whether it's done (M5).
+  const runningCheck = useRunningPlanTicketCheck(sessionPlan, runningTicket);
   // The running ticket's time this session counts its earlier stints too, as its
   // checklist line does.
   const runningTicketPriorMs = useMemo(() => {
@@ -645,8 +648,22 @@ export const ClockPage: React.FC = () => {
   }, [planBusy, gateTeamId, planTeamId]);
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
+  // Clocking out with Pulse asks about a running plan ticket first, as the
+  // Clock out button does; a link already waiting is just opened again.
+  const wrapUpPulseAsked: PulseUpload = {
+    ...wrapUpPulse,
+    start: async () => {
+      if (wrapUpPulse.status?.state === 'waiting') return wrapUpPulse.start();
+      const answer = await runningCheck.confirmClockOut();
+      // Answered in the dialog, the tap that opened it is over.
+      if (answer.proceed) await wrapUpPulse.start({ afterTap: Boolean(answer.ticket) });
+    },
+    upload: async (file) => {
+      if ((await runningCheck.confirmClockOut()).proceed) await wrapUpPulse.upload(file);
+    },
+  };
   const clockPulse = isClockedIn
-    ? wrapUpPulse
+    ? wrapUpPulseAsked
     : gateTeamId && isSelectedTeamMember
       ? planPulse
       : null;
@@ -785,6 +802,8 @@ export const ClockPage: React.FC = () => {
     if (!activeClockEvent || !hasContent || posting) return;
     // Clocked out at the press, however long its files take to finish.
     const at = Date.now();
+    const running = await runningCheck.confirmClockOut();
+    if (!running.proceed) return;
     setPosting(true);
     setSubmittingMode('wrapup');
     setPostError(null);
@@ -828,12 +847,17 @@ export const ClockPage: React.FC = () => {
           !shownSeedRef.current.includes(planText) &&
           !shownSeedRef.current.includes(shownPlan);
         // The checklist is saved with the plan's checks: a box in the editor
-        // shows the session's state, which its text doesn't hold.
+        // shows the session's state, which its text doesn't hold. The running
+        // ticket's is as just answered, which the plan read here may not show yet.
+        const answered = running.ticket;
         const textToSave = withChecks(
           editorNeverSawPlan && !trimmed.includes(planText) && !trimmed.includes(shownPlan)
             ? `${planText}\n\n${trimmed}`
             : trimmed,
-          planEditor.checkedOf,
+          (identity) =>
+            answered && 'ticketId' in identity && identity.ticketId === answered.ticketId
+              ? answered.checked
+              : planEditor.checkedOf(identity),
         );
         // Mentions a plan only attached (posted before plans linked them, so
         // no `@Name` in its text) were never shown, so stay — like tickets below.
@@ -912,6 +936,11 @@ export const ClockPage: React.FC = () => {
       setPosting(false);
       setSubmittingMode(null);
     }
+  }
+
+  /** Clock out without a wrap-up, once the running plan ticket is answered for. */
+  async function confirmAndClockOut() {
+    if ((await runningCheck.confirmClockOut()).proceed) await clockOut();
   }
 
   // ── Status line copy ──
@@ -1269,7 +1298,7 @@ export const ClockPage: React.FC = () => {
             ) : (
               <Button
                 variant="danger"
-                onClick={() => void clockOut()}
+                onClick={() => void confirmAndClockOut()}
                 isLoading={clockOutLoading}
                 aria-label={clockText.clockOut}
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
@@ -1327,6 +1356,7 @@ export const ClockPage: React.FC = () => {
           }
         />
       </div>
+      {runningCheck.prompt}
       <PulseUploadModal
         open={planPulse.modalOpen}
         onClose={planPulse.closeModal}

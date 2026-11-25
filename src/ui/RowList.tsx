@@ -193,6 +193,8 @@ export interface RowListProps<T> {
   renderRow: (item: T) => React.ReactNode;
   /** Controls above the rows. Stays put while the rows scroll. */
   header?: React.ReactNode;
+  /** Folds the header away, out of the tab order, giving the rows its room. */
+  headerFolded?: boolean;
   /** Shown in place of the rows when there are none and nothing is loading. */
   emptyState?: React.ReactNode;
   /**
@@ -673,6 +675,7 @@ export function RowList<T>({
   getTitle,
   renderRow,
   header,
+  headerFolded = false,
   emptyState,
   loading = false,
   scrollKey,
@@ -702,7 +705,16 @@ export function RowList<T>({
         // rows' own inset, so its first and last controls line up with theirs.
         // Its corner is the vertical padding out from a pill-shaped control's
         // own (h-7), so one line of controls reads as a pill.
-        <div className="row-list-header mb-1 flex shrink-0 flex-wrap items-center gap-1.5 rounded-[1.375rem] bg-muted px-(--row-list-inset) py-2">
+        <div
+          inert={headerFolded}
+          className={cn(
+            'row-list-header flex shrink-0 flex-wrap items-center gap-1.5 rounded-[1.375rem] bg-muted px-(--row-list-inset) transition-[max-height,opacity,margin,padding] duration-200 motion-reduce:transition-none',
+            // Roomy when open: the Sort and filter pane opens inside it.
+            headerFolded
+              ? 'mb-0 max-h-0 overflow-hidden py-0 opacity-0'
+              : 'mb-1 max-h-96 py-2 opacity-100',
+          )}
+        >
           {header}
         </div>
       )}
