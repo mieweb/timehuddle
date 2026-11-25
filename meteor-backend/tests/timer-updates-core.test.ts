@@ -10,6 +10,7 @@ import {
   planUpdateText,
   startAction,
   timerUpdateText,
+  priorSeconds,
   workedFor,
 } from '../server/timer-updates-core';
 
@@ -106,3 +107,23 @@ describe('startAction', () => {
     expect(startAction({ previousWorkItemId: 'a', workItemId: 'a' })).toBeNull();
   });
 });
+
+describe('priorSeconds', () => {
+  const stint = (startTime: number, endTime: number | null, durationSeconds?: number) => ({
+    startTime,
+    endTime,
+    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+  });
+
+  it("sums the ticket's closed stints before this one, not after or still running", () => {
+    const now = stint(10_000, null);
+    const ticket = [stint(0, 4_000, 4), stint(5_000, 8_000, 3), now, stint(20_000, 30_000, 10)];
+    expect(priorSeconds(now, ticket)).toBe(7);
+  });
+
+  it('is 0 for a first stint, and reads a missing duration from its times', () => {
+    expect(priorSeconds(stint(0, null), [stint(0, null)])).toBe(0);
+    expect(priorSeconds(stint(10_000, null), [stint(0, 2_500)])).toBe(2);
+  });
+});
+

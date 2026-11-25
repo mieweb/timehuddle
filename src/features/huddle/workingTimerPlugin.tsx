@@ -1,7 +1,8 @@
 /**
  * A "Working on …" update with its time: the ticket link in the update a timer
- * start posted gets that stint's `TimePill` beside it, ticking while the timer
- * runs and stopped once it stops. The time is the timer session's
+ * start posted gets a `TimePill` beside it, ticking while the timer runs and
+ * stopped once it stops. Coming back to a ticket continues its time this
+ * session: the pill counts on from what the ticket had before this stint. The time is the timer session's
  * (`HuddlePost.timer`, read with the post), so it stays right after the update
  * is long scrolled past.
  *
@@ -19,6 +20,8 @@ export interface PostTimer {
   startTime: number;
   /** Null while it runs. */
   endTime: number | null;
+  /** The ticket's time this clock session before this stint: the pill counts on from it. */
+  priorSeconds?: number;
 }
 
 const WorkingTimersContext = createContext<ReadonlyMap<string, PostTimer>>(new Map());
@@ -51,13 +54,14 @@ export function withWorkingTimer(plugin: SuperChatRenderPlugin): SuperChatRender
     const timer = timers.get(messageId);
     if (!timer) return link;
     const running = timer.endTime === null;
+    const priorMs = (timer.priorSeconds ?? 0) * 1000;
     const title = textOf(props.node as HastNode | undefined);
     return (
       <span className="working-on-ticket inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
         <span className="flex min-w-0">{link}</span>
         <TimePill
-          runningSince={running ? timer.startTime : null}
-          seconds={running ? 0 : Math.max(0, (timer.endTime! - timer.startTime) / 1000)}
+          runningSince={running ? timer.startTime - priorMs : null}
+          seconds={running ? 0 : Math.max(0, (timer.endTime! - timer.startTime + priorMs) / 1000)}
           label={ticketTimerText.workingTimeLabel(title, running)}
         />
       </span>

@@ -103,3 +103,21 @@ export function startAction({ previousWorkItemId, workItemId, discardPrevious = 
   if (previousWorkItemId === workItemId) return null;
   return discardPrevious ? TimerUpdate.STARTED : TimerUpdate.SWITCHED;
 }
+
+/**
+ * The time a ticket already had this clock session when `stint` began: its
+ * closed stints before it, summed. A "Working on …" update counts on from it,
+ * so coming back to a ticket continues its time rather than starting at 0.
+ * @param {{ startTime: number }} stint
+ * @param {Array<{ startTime: number, endTime: number | null, durationSeconds?: number }>} sameTicket
+ *   the ticket's stints in the same clock session, `stint` among them or not
+ */
+export function priorSeconds(stint, sameTicket) {
+  return sameTicket
+    .filter((other) => other.endTime !== null && other.startTime < stint.startTime)
+    .reduce(
+      (sum, other) =>
+        sum + (other.durationSeconds ?? Math.max(0, Math.floor((other.endTime - other.startTime) / 1000))),
+      0,
+    );
+}
