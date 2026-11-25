@@ -499,6 +499,16 @@ export default function Huddle() {
           scheduleVersion: restPost.scheduleVersion,
         });
       }
+      // Stopping a timer doesn't touch its post either, and may come on top
+      // of any merge above: keep the stint's closed time over an open one.
+      const merged = byId.get(id)!;
+      if (
+        restPost.timer?.endTime != null &&
+        merged.timer?.endTime == null &&
+        merged.timer?.startTime === restPost.timer.startTime
+      ) {
+        byId.set(id, { ...merged, timer: restPost.timer });
+      }
     }
     const teamPosts = [...byId.values()].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

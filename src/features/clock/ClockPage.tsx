@@ -180,6 +180,15 @@ export const ClockPage: React.FC = () => {
   // Once clocked in, the editor the plan was written in shows it as a
   // checklist: each ticket a line with its ▶/⏸ and running time (M4).
   const planEditor = usePlanTaskEditor(sessionPlan, runningTicket);
+  // The running ticket's time this session counts its earlier stints too, as its
+  // checklist line does.
+  const runningTicketPriorMs = useMemo(() => {
+    if (!runningTicket) return 0;
+    const item = sessionPlan.plan?.items.find(
+      (i) => 'ticketId' in i && i.runningSince === runningTicket.startTime,
+    );
+    return item && 'seconds' in item ? item.seconds * 1000 : 0;
+  }, [runningTicket, sessionPlan.plan]);
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -1032,7 +1041,9 @@ export const ClockPage: React.FC = () => {
                   <span className="min-w-0 max-w-[min(100%,20rem)] truncate tabular-nums sm:max-w-md md:max-w-lg">
                     {clockText.runningTicketTime(
                       runningTicket.title,
-                      formatTimer((currentTime - runningTicket.startTime) / 1000),
+                      formatTimer(
+                        (currentTime - runningTicket.startTime + runningTicketPriorMs) / 1000,
+                      ),
                     )}
                   </span>
                 </Badge>

@@ -124,12 +124,11 @@ async function announceStart(userId, session, previous, discardSessionId) {
     workItemId: session.workItemId,
     discardPrevious,
   });
-  // Touch and go on today's plan (M4): the switch names what it checked off.
+  // Touch and go on today's plan (M4): a check-off is its own update, read
+  // before the one for what's started.
   const checkedOff = await planTouchAndGo(userId, previous, session, { discardPrevious });
-  const posted = action ? await postTimerUpdate(action, session, { remember: true, checkedOff }) : null;
-  // Otherwise the plan's own Huddle is told on its own.
-  if (checkedOff && !posted?.namedCheckOff) await postCheckedOff(userId, checkedOff);
-  return posted;
+  if (checkedOff) await postCheckedOff(userId, checkedOff, { at: session.startTime - 1 });
+  return action ? await postTimerUpdate(action, session, { remember: true }) : null;
 }
 
 /**
