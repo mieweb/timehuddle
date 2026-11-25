@@ -72,7 +72,11 @@ function metaForItem(item: ActivityLogItem): EventMeta {
     case 'clock.in':
       return { icon: faClockRotateLeft, iconClass: 'text-green-500', label: 'Clocked in' };
     case 'clock.out':
-      return { icon: faClockRotateLeft, iconClass: 'text-red-400', label: 'Clocked out' };
+      return {
+        icon: faClockRotateLeft,
+        iconClass: 'text-red-400',
+        label: item.payload.auto ? 'Auto clocked out' : 'Clocked out',
+      };
     case 'ticket.created':
       return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Created ticket' };
     default:
