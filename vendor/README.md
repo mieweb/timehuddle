@@ -16,19 +16,16 @@ are built in the library itself, on a branch that is sent upstream as a PR, rath
 around in this app. Vendoring lets the app use that branch before it is released.
 
 `ui` points at `mieweb/ui`, branch `timehuddle/next`: an integration branch that is `main` with
-the changes TimeHuddle needs merged in ahead of their release. Each change is its own PR to `main`:
-the SuperChat host extension points (`Dharp02/ui`'s `feat/superchat-host-extension-points`), the
-SuperChat media work in [mieweb/ui#676](https://github.com/mieweb/ui/pull/676) (its MediaFeed and
-MediaPlayer half, [#675](https://github.com/mieweb/ui/pull/675), is merged),
-[#699](https://github.com/mieweb/ui/pull/699), which keeps `Textarea`'s Kerebron editor out of the
-app's first load, [#700](https://github.com/mieweb/ui/pull/700), which hands SuperChat hosts each
-attachment's `File` so Huddle can post large videos, and upload on attach (`useAttachmentUploads`,
-ChatComposer's `uploadAttachment`, `UploadAnnouncer`), committed straight to `timehuddle/next`
-for now, with no PR to `main` yet. Inline references (`@` people, `#` tickets, for TimeHuddle #885) are open upstream as
-[mieweb/ui#798](https://github.com/mieweb/ui/pull/798)–[#801](https://github.com/mieweb/ui/pull/801)
-(tracked in [#797](https://github.com/mieweb/ui/issues/797)), cut from `main` and cherry-picked onto
-`timehuddle/next`, so this bump doesn't also pull in `main`'s other unreleased changes. As those merge, `timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
-install the committed tarball.
+the changes TimeHuddle needs merged in ahead of their release. Each change is its own PR to `main`.
+Everything it used to carry has merged (the SuperChat host extension points, media view, attachment
+`File`s, lazy Kerebron and inline references: [#676](https://github.com/mieweb/ui/pull/676),
+[#699](https://github.com/mieweb/ui/pull/699), [#700](https://github.com/mieweb/ui/pull/700),
+[#810](https://github.com/mieweb/ui/pull/810)–[#816](https://github.com/mieweb/ui/pull/816)). The
+one change still ahead of `main` is upload on attach (`useAttachmentUploads`, ChatComposer's
+`uploadAttachment`, `UploadAnnouncer`), open as [mieweb/ui#832](https://github.com/mieweb/ui/pull/832)
+from branch `feat/chatcomposer-upload-on-attach`: merge that branch into `timehuddle/next` again
+after each review round. Once it merges, `timehuddle/next` is plain `main`. CI and Docker never
+check the submodule out: they install the committed tarball.
 
 ```mermaid
 graph LR

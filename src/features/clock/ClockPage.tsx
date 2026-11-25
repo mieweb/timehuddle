@@ -200,11 +200,7 @@ export const ClockPage: React.FC = () => {
   // (postRefsIn).
   const personTrigger = usePersonTrigger(teamMentions);
   const ticketTrigger = useTicketTrigger(gateTeamId, gateTeam);
-  // A `#` ticket goes on its own line, as the Ticket button puts it.
-  const triggers = useMemo(
-    () => [personTrigger, { ...ticketTrigger, ownLine: true }],
-    [personTrigger, ticketTrigger],
-  );
+  const triggers = useMemo(() => [personTrigger, ticketTrigger], [personTrigger, ticketTrigger]);
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);

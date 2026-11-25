@@ -351,10 +351,8 @@ export default function Huddle() {
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId),
   );
-  // A send is in flight. The ref is what guards re-entry; the state only
-  // drives the composer's busy send button.
+  // A send is in flight: guards re-entry. (SuperChat shows the busy button.)
   const sendingRef = useRef(false);
-  const [sending, setSending] = useState(false);
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -1078,7 +1076,6 @@ export default function Huddle() {
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
     if (sendingRef.current) throw alreadySending();
     sendingRef.current = true;
-    setSending(true);
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
@@ -1137,7 +1134,6 @@ export default function Huddle() {
       throw err;
     } finally {
       sendingRef.current = false;
-      setSending(false);
     }
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
@@ -1433,10 +1429,9 @@ export default function Huddle() {
                       uploadLabels: UPLOAD_TEXT,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: selectedTicketIds.length > 0,
-                      // Also busy while staged content is still settling: a send
-                      // rejected then would lose the picked files, which the
-                      // composer clears before `onSend` (gap 4.14).
-                      isSending: sending || ticketVideos.loading,
+                      // SuperChat shows Send busy while a post is on its way; a
+                      // send while the tickets' videos still load is refused in
+                      // handleSend, and SuperChat puts the draft and files back.
                       mentionOptions: [
                         ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                         ...mentions.options,
