@@ -9,6 +9,11 @@
  * lists the member's GitHub issues once they've connected it (#873): what's
  * assigned to them on focus, what the text finds as they type.
  *
+ * In the app (Capacitor) the results take the whole screen instead: the bar
+ * on the page opens a search with its own field and a Cancel button, sized to
+ * what the keyboard leaves. Scrolling or tapping outside the field leaves it
+ * open; Cancel closes it.
+ *
  * Built on downshift's `useCombobox` rather than `@mieweb/ui`'s `Autocomplete`,
  * whose rows are `<button>`s (no room for the timer and hide actions) and whose
  * highlighted row is private (no Delete-to-hide). Everything visible is still
@@ -30,8 +35,8 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions } from 'downshift';
-import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 
 import {
   ticketApi,
@@ -43,6 +48,7 @@ import {
   type Team,
   type Ticket,
 } from '../../../lib/api';
+import { isNativeApp } from '../../../lib/device';
 import { useTeam } from '../../../lib/TeamContext';
 import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
@@ -183,6 +189,11 @@ export function RedmineSuggestions({
   const sourceSearch = useSourceSearch(userId, query);
   const foundTickets = ticketSearch.tickets;
   const [showAll, setShowAll] = useState(false);
+  // In the app the results are a full-screen search, open until Cancel.
+  const [fullScreen] = useState(isNativeApp);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetInputRef = useRef<HTMLInputElement | null>(null);
+  const viewport = useVisibleViewport(fullScreen && sheetOpen);
   // The row whose timer start or stop is in flight, by `rowKey`. The ref is the
   // guard (a double-click lands before the state does); the state drives the
   // spinner.
@@ -404,6 +415,9 @@ export function RedmineSuggestions({
 
   const choose = useCallback(
     (row: Row) => {
+      // Opening a result leaves the search, as the dropdown closes on the web.
+      if (row.kind === 'ticket' || row.kind === 'issue' || row.kind === 'source')
+        setSheetOpen(false);
       if (row.kind === 'ticket')
         navigate(ticketDetailPath({ sourceId: 'huddle', id: row.ticket.id }));
       else if (row.kind === 'issue')
@@ -451,6 +465,8 @@ export function RedmineSuggestions({
     itemToString: () => query,
     itemToKey: rowKey,
     stateReducer,
+    // The full-screen search stays open through blur and taps outside it.
+    ...(fullScreen ? { isOpen: sheetOpen } : {}),
     onInputValueChange: ({ inputValue, type }) => {
       if (type === useCombobox.stateChangeTypes.InputChange) {
         onQueryChange(inputValue ?? '');
@@ -468,6 +484,25 @@ export function RedmineSuggestions({
     },
   });
 
+  /** Close the results: the dropdown, or the full-screen search. */
+  const closeResults = fullScreen ? () => setSheetOpen(false) : closeMenu;
+
+  // Shown and focused within the tap, so the keyboard comes up with it.
+  const openSheet = () => {
+    void loadSuggestions();
+    flushSync(() => setSheetOpen(true));
+    sheetInputRef.current?.focus();
+  };
+  const cancelSheet = () => {
+    setSheetOpen(false);
+    setShowAll(false);
+    onQueryChange('');
+  };
+  // Dragging the results puts the keyboard away, as a phone's own search does.
+  const blurSheetInput = () => {
+    if (document.activeElement === sheetInputRef.current) sheetInputRef.current?.blur();
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const row = isOpen && highlightedIndex >= 0 ? rows[highlightedIndex] : undefined;
     const stopDownshift = () => {
@@ -478,7 +513,7 @@ export function RedmineSuggestions({
     };
     if (row?.kind === 'ticket' && event.key === 'Enter' && event.shiftKey) {
       stopDownshift();
-      closeMenu();
+      closeResults();
       void toggleTicketTimer(row);
       return;
     }
@@ -486,7 +521,7 @@ export function RedmineSuggestions({
       stopDownshift();
       if (event.altKey) void toggleSourceBoard(row);
       else {
-        closeMenu();
+        closeResults();
         void toggleSourceTimer(row);
       }
       return;
@@ -501,7 +536,7 @@ export function RedmineSuggestions({
       void toggleBoard(row.issue);
     } else if (event.key === 'Enter' && event.shiftKey) {
       stopDownshift();
-      closeMenu();
+      closeResults();
       void toggleTimer(row);
     }
   };
@@ -561,7 +596,7 @@ export function RedmineSuggestions({
   // blurs its backdrop, which makes it its own stacking context, so an absolute
   // panel inside it would sit under the table.
   const { anchorRef, floatingRef, style } = useAnchoredPosition<HTMLDivElement, HTMLDivElement>({
-    open: showPanel,
+    open: !fullScreen && showPanel,
     // At least as wide as the input, but never as narrow as it gets on a phone,
     // where it shares one row with "New Ticket" and the Closed switch.
     matchMinWidth: true,
@@ -569,194 +604,271 @@ export function RedmineSuggestions({
     maxHeight: 384,
   });
 
+  // One list of results: in the dropdown on the web, in the full-screen search in the app.
+  const results = (
+    <>
+      {/* The list scrolls; the status line under it stays in view. */}
+      <ScrollArea
+        className={`redmine-suggestions-scroll min-h-0 flex-1 overscroll-contain [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`}
+        onTouchMove={fullScreen && sheetOpen ? blurSheetInput : undefined}
+      >
+        <ul
+          className="redmine-suggestions-list py-1"
+          {...getMenuProps({ 'aria-label': text.menuLabel })}
+        >
+          {showPanel &&
+            rows.map((row, index) => (
+              <React.Fragment key={rowKey(row)}>
+                {index === firstTicketIndex && (
+                  <SectionHeading>{text.ticketsHeading}</SectionHeading>
+                )}
+                {index === firstSuggestedIndex && (
+                  <SectionHeading>{text.suggestedHeading}</SectionHeading>
+                )}
+                {index === firstMoreIndex && <SectionHeading>{text.moreHeading}</SectionHeading>}
+                {row.kind === 'source' &&
+                  rows.findIndex(
+                    (other) => other.kind === 'source' && other.server.host === row.server.host,
+                  ) === index && (
+                    <SectionHeading>{text.fromSource(sourceName(row.server))}</SectionHeading>
+                  )}
+                <li
+                  className={
+                    fullScreen
+                      ? 'redmine-suggestion group flex cursor-pointer items-start gap-2.5 border-b border-border px-3 py-2.5 text-sm aria-selected:bg-muted'
+                      : 'redmine-suggestion group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm aria-selected:bg-muted'
+                  }
+                  {...getItemProps({ item: row, index })}
+                  {...(row.kind === 'source' ? { 'aria-describedby': searchShortcutsId } : {})}
+                  {...(row.kind === 'issue'
+                    ? {
+                        'aria-describedby':
+                          row.section === 'suggested' ? shortcutsId : searchShortcutsId,
+                      }
+                    : row.kind === 'ticket'
+                      ? { 'aria-describedby': ticketShortcutsId }
+                      : {})}
+                >
+                  {row.kind === 'ticket' ? (
+                    <FoundTicketRow
+                      sheet={fullScreen}
+                      ticket={row.ticket}
+                      team={teamById.get(row.ticket.teamId)}
+                      showTeam={row.ticket.teamId !== selectedTeamId}
+                      redmineHost={redmineHost}
+                      running={runningTicketKey === ticketKey('huddle', row.ticket.id)}
+                      timerBusy={timerRowKey !== null}
+                      timerLoading={timerRowKey === rowKey(row)}
+                      onToggleTimer={() => {
+                        closeResults();
+                        void toggleTicketTimer(row);
+                      }}
+                    />
+                  ) : row.kind === 'source' ? (
+                    <IssueRow
+                      sheet={fullScreen}
+                      issue={row.issue}
+                      issueRef={row.issue.ref ?? `${row.server.prefix}-${row.issue.id}`}
+                      reason={row.issue.pull ? text.pullRequest : null}
+                      running={Boolean(
+                        ticketHere(row.issue) &&
+                        runningTicketKey === ticketKey('huddle', ticketHere(row.issue)!.id),
+                      )}
+                      timerBusy={timerRowKey !== null}
+                      timerLoading={timerRowKey === rowKey(row)}
+                      onBoard={Boolean(
+                        ticketHere(row.issue) &&
+                        boardKeys.has(ticketKey('huddle', ticketHere(row.issue)!.id)),
+                      )}
+                      boardKnown={boardKnown}
+                      boardBusy={boardIssueId !== null || boardSourceKey !== null}
+                      boardLoading={boardSourceKey === rowKey(row)}
+                      onToggleBoard={() => void toggleSourceBoard(row)}
+                      onToggleTimer={() => {
+                        closeResults();
+                        void toggleSourceTimer(row);
+                      }}
+                    />
+                  ) : row.kind === 'issue' ? (
+                    <IssueRow
+                      sheet={fullScreen}
+                      issue={row.issue}
+                      issueRef={issueRef(row.issue.id)}
+                      reason={
+                        row.section === 'suggested'
+                          ? reasonLabel(row.issue, { runningIssueId })
+                          : null
+                      }
+                      running={row.issue.id === runningIssueId}
+                      timerBusy={timerRowKey !== null}
+                      timerLoading={timerRowKey === rowKey(row)}
+                      onBoard={boardIssueIds.has(row.issue.id)}
+                      boardKnown={boardKnown}
+                      boardBusy={boardIssueId !== null}
+                      boardLoading={boardIssueId === row.issue.id}
+                      onToggleBoard={() => void toggleBoard(row.issue)}
+                      onToggleTimer={() => {
+                        // Like Shift+Enter: close first, so nothing is left
+                        // open behind a clock-in prompt.
+                        closeResults();
+                        void toggleTimer(row);
+                      }}
+                      onHide={row.section === 'suggested' ? () => void hide(row.issue) : undefined}
+                    />
+                  ) : (
+                    <Text as="span" size="sm" variant="primary" className="font-medium">
+                      {row.kind === 'show-all'
+                        ? text.showAll(row.count)
+                        : row.kind === 'connect'
+                          ? text.connect
+                          : text.retry}
+                    </Text>
+                  )}
+                </li>
+              </React.Fragment>
+            ))}
+          {showPanel && loadingSuggested && (
+            <>
+              <SectionHeading>{text.suggestedHeading}</SectionHeading>
+              <SuggestionSkeletons count={4} />
+            </>
+          )}
+          {showPanel && loadingMore && (
+            <>
+              <SectionHeading>{text.moreHeading}</SectionHeading>
+              <SuggestionSkeletons count={2} />
+            </>
+          )}
+        </ul>
+      </ScrollArea>
+
+      <div className="redmine-suggestions-status empty:hidden" role="status" aria-live="polite">
+        {showPanel && downServers.length > 0 && (
+          <div className="redmine-suggestions-failed border-t border-border px-3 py-2">
+            <Text as="span" size="xs" variant="muted">
+              {text.sourcesFailed(downServers.map(sourceName))}
+            </Text>
+          </div>
+        )}
+        {showPanel && limitedServers.length > 0 && (
+          <div className="redmine-suggestions-limited border-t border-border px-3 py-2">
+            <Text as="span" size="xs" variant="muted">
+              {text.sourcesRateLimited(limitedServers.map(sourceName))}
+            </Text>
+          </div>
+        )}
+        {showPanel && (statusMessage || suggestions.partial) && (
+          <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+            {(suggestions.status === 'loading' || search.status === 'loading') && (
+              <Spinner size="xs" />
+            )}
+            <Text as="span" size="xs" variant="muted">
+              {statusMessage ?? text.partial}
+            </Text>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  const searchIcon = (
+    <SearchIcon
+      aria-hidden="true"
+      size={14}
+      className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+    />
+  );
+  const comboboxInput = (
+    <Input
+      label={text.searchLabel}
+      hideLabel
+      placeholder={text.placeholder}
+      size="sm"
+      className={inputClassName}
+      {...getInputProps({
+        'aria-label': text.searchLabel,
+        onKeyDown,
+        ...(fullScreen
+          ? { ref: sheetInputRef, type: 'search', enterKeyHint: 'search' as const }
+          : {
+              onFocus: () => {
+                void loadSuggestions();
+                if (!isOpen) openMenu();
+              },
+            }),
+      })}
+    />
+  );
+
   return (
     <div ref={anchorRef} className="redmine-suggestions relative min-w-0 flex-1">
-      <SearchIcon
-        aria-hidden="true"
-        size={14}
-        className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-      />
-      <Input
-        label={text.searchLabel}
-        hideLabel
-        placeholder={text.placeholder}
-        size="sm"
-        className={inputClassName}
-        {...getInputProps({
-          'aria-label': text.searchLabel,
-          onKeyDown,
-          onFocus: () => {
-            void loadSuggestions();
-            if (!isOpen) openMenu();
-          },
-        })}
-      />
+      {searchIcon}
+      {fullScreen ? (
+        // Only opens the full-screen search, which has the field you type in.
+        <Input
+          label={text.searchLabel}
+          hideLabel
+          readOnly
+          placeholder={text.placeholder}
+          size="sm"
+          className={inputClassName}
+          value={query}
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          onClick={openSheet}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              openSheet();
+            }
+          }}
+        />
+      ) : (
+        comboboxInput
+      )}
 
       {createPortal(
-        <div
-          ref={floatingRef}
-          style={style}
-          className="redmine-suggestions-panel z-50 flex w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg"
-          hidden={!showPanel}
-        >
-          {/* The list scrolls; the status line under it stays in view. */}
-          <ScrollArea
-            className={`redmine-suggestions-scroll min-h-0 flex-1 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`}
+        fullScreen ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={text.searchLabel}
+            hidden={!sheetOpen}
+            // The app's web view doesn't shrink for the keyboard: the sheet keeps
+            // its full height, so its background shows through a translucent
+            // keyboard instead of the page, and its content ends where the
+            // keyboard begins.
+            style={
+              viewport
+                ? {
+                    top: viewport.offsetTop,
+                    paddingBottom: `max(${viewport.keyboard}px, env(safe-area-inset-bottom))`,
+                  }
+                : undefined
+            }
+            className="redmine-search-sheet fixed inset-x-0 top-0 z-50 flex h-dvh flex-col bg-background pb-[env(safe-area-inset-bottom)] text-foreground"
           >
-            <ul
-              className="redmine-suggestions-list py-1"
-              {...getMenuProps({ 'aria-label': text.menuLabel })}
-            >
-              {showPanel &&
-                rows.map((row, index) => (
-                  <React.Fragment key={rowKey(row)}>
-                    {index === firstTicketIndex && (
-                      <SectionHeading>{text.ticketsHeading}</SectionHeading>
-                    )}
-                    {index === firstSuggestedIndex && (
-                      <SectionHeading>{text.suggestedHeading}</SectionHeading>
-                    )}
-                    {index === firstMoreIndex && (
-                      <SectionHeading>{text.moreHeading}</SectionHeading>
-                    )}
-                    {row.kind === 'source' &&
-                      rows.findIndex(
-                        (other) => other.kind === 'source' && other.server.host === row.server.host,
-                      ) === index && (
-                        <SectionHeading>{text.fromSource(sourceName(row.server))}</SectionHeading>
-                      )}
-                    <li
-                      className="redmine-suggestion group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm aria-selected:bg-muted"
-                      {...getItemProps({ item: row, index })}
-                      {...(row.kind === 'source' ? { 'aria-describedby': searchShortcutsId } : {})}
-                      {...(row.kind === 'issue'
-                        ? {
-                            'aria-describedby':
-                              row.section === 'suggested' ? shortcutsId : searchShortcutsId,
-                          }
-                        : row.kind === 'ticket'
-                          ? { 'aria-describedby': ticketShortcutsId }
-                          : {})}
-                    >
-                      {row.kind === 'ticket' ? (
-                        <FoundTicketRow
-                          ticket={row.ticket}
-                          team={teamById.get(row.ticket.teamId)}
-                          showTeam={row.ticket.teamId !== selectedTeamId}
-                          redmineHost={redmineHost}
-                          running={runningTicketKey === ticketKey('huddle', row.ticket.id)}
-                          timerBusy={timerRowKey !== null}
-                          timerLoading={timerRowKey === rowKey(row)}
-                          onToggleTimer={() => {
-                            closeMenu();
-                            void toggleTicketTimer(row);
-                          }}
-                        />
-                      ) : row.kind === 'source' ? (
-                        <IssueRow
-                          issue={row.issue}
-                          issueRef={row.issue.ref ?? `${row.server.prefix}-${row.issue.id}`}
-                          reason={row.issue.pull ? text.pullRequest : null}
-                          running={Boolean(
-                            ticketHere(row.issue) &&
-                            runningTicketKey === ticketKey('huddle', ticketHere(row.issue)!.id),
-                          )}
-                          timerBusy={timerRowKey !== null}
-                          timerLoading={timerRowKey === rowKey(row)}
-                          onBoard={Boolean(
-                            ticketHere(row.issue) &&
-                            boardKeys.has(ticketKey('huddle', ticketHere(row.issue)!.id)),
-                          )}
-                          boardKnown={boardKnown}
-                          boardBusy={boardIssueId !== null || boardSourceKey !== null}
-                          boardLoading={boardSourceKey === rowKey(row)}
-                          onToggleBoard={() => void toggleSourceBoard(row)}
-                          onToggleTimer={() => {
-                            closeMenu();
-                            void toggleSourceTimer(row);
-                          }}
-                        />
-                      ) : row.kind === 'issue' ? (
-                        <IssueRow
-                          issue={row.issue}
-                          issueRef={issueRef(row.issue.id)}
-                          reason={
-                            row.section === 'suggested'
-                              ? reasonLabel(row.issue, { runningIssueId })
-                              : null
-                          }
-                          running={row.issue.id === runningIssueId}
-                          timerBusy={timerRowKey !== null}
-                          timerLoading={timerRowKey === rowKey(row)}
-                          onBoard={boardIssueIds.has(row.issue.id)}
-                          boardKnown={boardKnown}
-                          boardBusy={boardIssueId !== null}
-                          boardLoading={boardIssueId === row.issue.id}
-                          onToggleBoard={() => void toggleBoard(row.issue)}
-                          onToggleTimer={() => {
-                            // Like Shift+Enter: close first, so nothing is left
-                            // open behind a clock-in prompt.
-                            closeMenu();
-                            void toggleTimer(row);
-                          }}
-                          onHide={
-                            row.section === 'suggested' ? () => void hide(row.issue) : undefined
-                          }
-                        />
-                      ) : (
-                        <Text as="span" size="sm" variant="primary" className="font-medium">
-                          {row.kind === 'show-all'
-                            ? text.showAll(row.count)
-                            : row.kind === 'connect'
-                              ? text.connect
-                              : text.retry}
-                        </Text>
-                      )}
-                    </li>
-                  </React.Fragment>
-                ))}
-              {showPanel && loadingSuggested && (
-                <>
-                  <SectionHeading>{text.suggestedHeading}</SectionHeading>
-                  <SuggestionSkeletons count={4} />
-                </>
-              )}
-              {showPanel && loadingMore && (
-                <>
-                  <SectionHeading>{text.moreHeading}</SectionHeading>
-                  <SuggestionSkeletons count={2} />
-                </>
-              )}
-            </ul>
-          </ScrollArea>
-
-          <div className="redmine-suggestions-status empty:hidden" role="status" aria-live="polite">
-            {showPanel && downServers.length > 0 && (
-              <div className="redmine-suggestions-failed border-t border-border px-3 py-2">
-                <Text as="span" size="xs" variant="muted">
-                  {text.sourcesFailed(downServers.map(sourceName))}
-                </Text>
+            <div className="redmine-search-sheet-bar flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2 pt-[max(env(safe-area-inset-top),0.5rem)]">
+              <div className="redmine-search-sheet-field relative min-w-0 flex-1">
+                {searchIcon}
+                {comboboxInput}
               </div>
-            )}
-            {showPanel && limitedServers.length > 0 && (
-              <div className="redmine-suggestions-limited border-t border-border px-3 py-2">
-                <Text as="span" size="xs" variant="muted">
-                  {text.sourcesRateLimited(limitedServers.map(sourceName))}
-                </Text>
-              </div>
-            )}
-            {showPanel && (statusMessage || suggestions.partial) && (
-              <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-                {(suggestions.status === 'loading' || search.status === 'loading') && (
-                  <Spinner size="xs" />
-                )}
-                <Text as="span" size="xs" variant="muted">
-                  {statusMessage ?? text.partial}
-                </Text>
-              </div>
-            )}
+              <Button variant="ghost" size="sm" onClick={cancelSheet}>
+                {text.cancel}
+              </Button>
+            </div>
+            {results}
           </div>
-        </div>,
+        ) : (
+          <div
+            ref={floatingRef}
+            style={style}
+            className="redmine-suggestions-panel z-50 flex w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg"
+            hidden={!showPanel}
+          >
+            {results}
+          </div>
+        ),
         document.body,
       )}
 
@@ -771,6 +883,39 @@ export function RedmineSuggestions({
       </span>
     </div>
   );
+}
+
+/**
+ * Where the visible part of the screen starts, and how much of a full-height
+ * panel from there the keyboard covers, while `active`: the app's web view keeps its full height
+ * under the keyboard, so a full-screen panel would hide its last rows behind
+ * it. Null when inactive or where `visualViewport` is missing.
+ */
+function useVisibleViewport(active: boolean): { offsetTop: number; keyboard: number } | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const viewport = window.visualViewport;
+      if (!active || !viewport) return () => {};
+      viewport.addEventListener('resize', onChange);
+      viewport.addEventListener('scroll', onChange);
+      return () => {
+        viewport.removeEventListener('resize', onChange);
+        viewport.removeEventListener('scroll', onChange);
+      };
+    },
+    [active],
+  );
+  // A string, so an unchanged viewport is an unchanged snapshot.
+  const snapshot = useSyncExternalStore(subscribe, () => {
+    const viewport = window.visualViewport;
+    if (!active || !viewport) return '';
+    // The sheet is full height from `offsetTop`, so all but the visible height is covered.
+    const keyboard = Math.max(0, window.innerHeight - viewport.height);
+    return `${viewport.offsetTop}:${keyboard}`;
+  });
+  if (!snapshot) return null;
+  const [offsetTop, keyboard] = snapshot.split(':').map(Number);
+  return { offsetTop, keyboard };
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
@@ -843,6 +988,7 @@ const ID_CLASS = 'redmine-suggestion-id w-20 shrink-0 break-all tabular-nums';
  * an issue row's, starts or stops a timer on it (Shift+Enter from the keyboard).
  */
 function FoundTicketRow({
+  sheet = false,
   ticket,
   team,
   showTeam,
@@ -852,6 +998,8 @@ function FoundTicketRow({
   timerLoading,
   onToggleTimer,
 }: {
+  /** Laid out like My Board's ticket rows, for the app's full-screen search. */
+  sheet?: boolean;
   ticket: Ticket;
   team: Team | undefined;
   showTeam: boolean;
@@ -873,7 +1021,7 @@ function FoundTicketRow({
         isRunning={running}
         isLoading={timerLoading}
         disabled={timerBusy}
-        className="h-7 w-7 shrink-0"
+        className={sheet ? 'h-8 w-8 shrink-0' : 'h-7 w-7 shrink-0'}
         tabIndex={-1}
         aria-hidden
         title={timerName}
@@ -884,29 +1032,74 @@ function FoundTicketRow({
           onToggleTimer();
         }}
       />
-      <span className={`${ID_CLASS} flex flex-col self-start pt-0.5`}>
-        <Text as="span" size="xs" className="redmine-suggestion-primary-id font-semibold">
-          {outside ?? own}
-        </Text>
-        {outside && (
-          <Text as="span" size="xs" variant="muted" className="redmine-suggestion-own-id">
-            {own}
-          </Text>
-        )}
-      </span>
-      <span className="redmine-suggestion-body min-w-0 flex-1">
-        <span className="redmine-suggestion-title block break-words">{ticket.title}</span>
-        {showTeam && team && (
-          <Text as="span" size="xs" variant="muted" className="block truncate">
-            {text.inTeam(team.name)}
-          </Text>
-        )}
-      </span>
+      {sheet ? (
+        <SheetRowBody
+          meta={
+            <>
+              {showTeam && team && <span className="min-w-0 break-words">{team.name}</span>}
+              <span className="font-semibold text-foreground">{outside ?? own}</span>
+              {outside && <span className="text-xs">{own}</span>}
+            </>
+          }
+          title={ticket.title}
+        />
+      ) : (
+        <>
+          <span className={`${ID_CLASS} flex flex-col self-start pt-0.5`}>
+            <Text as="span" size="xs" className="redmine-suggestion-primary-id font-semibold">
+              {outside ?? own}
+            </Text>
+            {outside && (
+              <Text as="span" size="xs" variant="muted" className="redmine-suggestion-own-id">
+                {own}
+              </Text>
+            )}
+          </span>
+          <span className="redmine-suggestion-body min-w-0 flex-1">
+            <span className="redmine-suggestion-title block break-words">{ticket.title}</span>
+            {showTeam && team && (
+              <Text as="span" size="xs" variant="muted" className="block truncate">
+                {text.inTeam(team.name)}
+              </Text>
+            )}
+          </span>
+        </>
+      )}
     </>
   );
 }
 
+/**
+ * A result's text as My Board's ticket rows lay theirs out: where it sits and
+ * what it is called by on a line, the title under it, then any `properties`.
+ */
+function SheetRowBody({
+  meta,
+  title,
+  properties,
+}: {
+  meta: React.ReactNode;
+  title: string;
+  properties?: React.ReactNode;
+}) {
+  return (
+    <span className="redmine-suggestion-body min-w-0 flex-1">
+      <span className="redmine-suggestion-meta flex min-h-8 min-w-0 flex-wrap items-center gap-x-2.5 text-sm text-muted-foreground">
+        {meta}
+      </span>
+      <span className="redmine-suggestion-title-line flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 pb-1">
+        <span className="redmine-suggestion-title min-w-0 text-sm leading-snug break-words">
+          {title}
+        </span>
+        {properties}
+      </span>
+    </span>
+  );
+}
+
 interface IssueRowProps {
+  /** Laid out like My Board's ticket rows, for the app's full-screen search. */
+  sheet?: boolean;
   issue: RedmineIssue;
   /** What the issue is shown as: `RMX-219` when its server has a prefix, else `#219`. */
   issueRef: string;
@@ -941,6 +1134,7 @@ interface IssueRowProps {
  * and Alt+Enter instead, announced through the row's `aria-describedby`.
  */
 function IssueRow({
+  sheet = false,
   issue,
   issueRef,
   reason,
@@ -970,7 +1164,7 @@ function IssueRow({
         isRunning={running}
         isLoading={timerLoading}
         disabled={timerBusy || boardLoading}
-        className="h-7 w-7 shrink-0"
+        className={sheet ? 'h-8 w-8 shrink-0' : 'h-7 w-7 shrink-0'}
         tabIndex={-1}
         aria-hidden
         title={timerName}
@@ -982,25 +1176,46 @@ function IssueRow({
         }}
       />
 
-      <Text as="span" size="xs" variant="muted" className={ID_CLASS}>
-        {label}
-      </Text>
+      {sheet ? (
+        <SheetRowBody
+          meta={
+            <>
+              {issue.project && <span className="min-w-0 break-words">{issue.project.name}</span>}
+              <span className="font-semibold text-foreground">{label}</span>
+            </>
+          }
+          title={issue.subject}
+          properties={
+            reason && (
+              <Badge size="sm" variant="secondary" className={CHIP_CLASS}>
+                {reason}
+              </Badge>
+            )
+          }
+        />
+      ) : (
+        <>
+          <Text as="span" size="xs" variant="muted" className={ID_CLASS}>
+            {label}
+          </Text>
 
-      <span className="redmine-suggestion-body min-w-0 flex-1">
-        <span className="redmine-suggestion-title block break-words">{issue.subject}</span>
-        <span className="redmine-suggestion-meta flex min-w-0 items-center gap-2 empty:hidden">
-          {reason && (
-            <Badge size="sm" variant="secondary" className={CHIP_CLASS}>
-              {reason}
-            </Badge>
-          )}
-          {issue.project && (
-            <Text as="span" size="xs" variant="muted" className="hidden truncate sm:block">
-              {issue.project.name}
-            </Text>
-          )}
-        </span>
-      </span>
+          <span className="redmine-suggestion-body min-w-0 flex-1">
+            <span className="redmine-suggestion-title block break-words">{issue.subject}</span>
+            <span className="redmine-suggestion-meta flex min-w-0 items-center gap-2 empty:hidden">
+              {reason && (
+                <Badge size="sm" variant="secondary" className={CHIP_CLASS}>
+                  {reason}
+                </Badge>
+              )}
+              {issue.project && (
+                <Text as="span" size="xs" variant="muted" className="hidden truncate sm:block">
+                  {issue.project.name}
+                </Text>
+              )}
+            </span>
+          </span>
+        </>
+      )}
 
       <ButtonGroup
         orientation="horizontal"
@@ -1013,7 +1228,7 @@ function IssueRow({
           // Not while this row's timer is starting (see `TicketTableRow`), nor
           // while another row's board action is, nor before the board is read.
           disabled={timerLoading || !boardKnown || (boardBusy && !boardLoading)}
-          className={`h-7 w-7 ${ON_ACTIVE_ROW_CLASS}`}
+          className={`${sheet ? 'h-8 w-8' : 'h-7 w-7'} ${ON_ACTIVE_ROW_CLASS}`}
           tabIndex={-1}
           aria-hidden
           ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
@@ -1028,7 +1243,7 @@ function IssueRow({
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 [&_[data-slot=button-label]]:flex ${ON_ACTIVE_ROW_CLASS}`}
+              className={`${sheet ? 'h-8 w-8' : 'h-7 w-7'} [&_[data-slot=button-label]]:flex ${ON_ACTIVE_ROW_CLASS}`}
               tabIndex={-1}
               aria-label={text.hide(label)}
               onMouseDown={keepFocus}
