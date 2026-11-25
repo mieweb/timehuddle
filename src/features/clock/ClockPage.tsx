@@ -327,8 +327,9 @@ export const ClockPage: React.FC = () => {
       draft,
       mentionUserIds: postRefsIn(postText, refs).mentions,
       ticketIds: postRefsIn(postText, refs).ticketIds,
-      /** The people and tickets read for the text, for a wrap-up to read its plan against. */
+      /** For a wrap-up whose saved text differs from the draft (the plan put back). */
       refs,
+      looked,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -399,22 +400,27 @@ export const ClockPage: React.FC = () => {
   // editor must not mount before this: RichEditor reads `value` on mount only,
   // and since 0.8.0 it no longer picks up a later value even when remounted via
   // `key`. Mounting empty and remounting once the plan text arrives therefore
-  // left the wrap-up composer blank, without the plan it continues.
+  // left the wrap-up composer blank, and submitting it overwrote the plan post
+  // with wrap-up-only text — silent loss of what the user wrote at clock-in.
   const [seedSettled, setSeedSettled] = useState(false);
   // The plan this page just posted to clock in. The wrap-up that follows
   // starts from it straight away, rather than showing a spinner while the
   // lookup above fetches the same post back.
   // The draft that plan was posted from (exactly as the editor last reported
-  // it). Clock-in leaves the draft untouched in
+  // it) and the plan text as posted. Clock-in leaves the draft untouched in
   // the editor and the wrap-up opens on it; changing it here instead would
   // start a reload in the plan editor, which — when clock-in isn't confirmed
   // and that editor stays — can land after the draft is cleared and put the
   // posted plan back, ready to post twice.
-  const handedOverRef = useRef<{ draft: string } | null>(null);
+  const handedOverRef = useRef<{ draft: string; plan: string } | null>(null);
   const [postedPlan, setPostedPlan] = useState<Pick<
     HuddlePost,
     'id' | 'content' | 'tickets' | 'attachments'
   > | null>(null);
+  // What the editor was actually mounted with. The wrap-up submit overwrites
+  // the plan post, so if the editor never received the plan text we must not
+  // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
+  const shownSeedRef = useRef<string>('');
   // Only good for the shift it clocked in: dropped once clocked out (a failed
   // clock-in included), so a later shift never starts from it. The plan text
   // handed over for the wrap-up goes with it: if clock-in posted the plan but
@@ -438,7 +444,7 @@ export const ClockPage: React.FC = () => {
     if (!isClockedIn || !postedPlan || !handedOver) return;
     const checklist = planTicketsAsChecklist(handedOver.draft);
     if (checklist === handedOver.draft) return;
-    handedOverRef.current = { draft: checklist };
+    handedOverRef.current = { draft: checklist, plan: handedOver.plan };
     setText((current) => (current === handedOver.draft ? checklist : current));
   }, [isClockedIn, postedPlan]);
   // A composer being submitted keeps its editor: once clock-out lands, the
@@ -504,10 +510,21 @@ export const ClockPage: React.FC = () => {
         )
       : '';
 
+  // Remember what the editor was actually mounted with, for the wrap-up guard.
+  // Snapshot `text` (what the editor is given) at each (re)mount — not
+  // `seedText`, which differs once the user has typed before the plan arrives.
+  useEffect(() => {
+    if (editorMounted) shownSeedRef.current = text;
+  }, [editorMounted, composerMode, editorKey]);
+
+  // Caches the plan post ID immediately after creation so postWrapUpAndClockOut
+  // can update the right post even if the DDP subscription hasn't synced yet.
+  const cachedPlanPostIdRef = useRef<string | null>(null);
+
   // Apply the seed once it becomes available (the session post loads async),
   // unless the user has already started typing. Remount the uncontrolled editor
   // via `editorKey` so it picks up the seeded value.
-  // Not while submitting: posting the wrap-up becomes the session's post,
+  // Not while submitting: posting the wrap-up rewrites the session's post,
   // and clocking out drops it, so the seed changes twice mid-submit — each a
   // remount that blanked the editor and could tear it down mid-setup.
   const seededTokenRef = useRef<string | null>(null);
@@ -752,7 +769,10 @@ export const ClockPage: React.FC = () => {
       giveBack = null;
       const planPostId = created.id;
       planPosted = true;
-      handedOverRef.current = { draft };
+      // Cache the plan post ID so postWrapUpAndClockOut can find it even if
+      // the DDP subscription hasn't synced the new post back to this client yet.
+      cachedPlanPostIdRef.current = planPostId;
+      handedOverRef.current = { draft, plan: trimmed };
       setPostedPlan({
         id: planPostId,
         content: { text: trimmed, mentions: mentionUserIds },
@@ -791,41 +811,122 @@ export const ClockPage: React.FC = () => {
     setPostError(null);
     let giveBack: (() => void) | null = null;
     try {
-      if (!gateTeamId) throw new Error(clockText.noWrapUpTeam);
+      // Use sessionPost from DDP if available, otherwise fall back to the
+      // cached post ID (handles the race where the plan post was just created
+      // but hasn't arrived via DDP subscription yet).
       const ready = await takeForPost();
       if (!ready) return;
       giveBack = ready.giveBack;
-      // The wrap-up is its own post: the plan post stays as it was posted
-      // (the Huddle timeline is append-only). It is today's checklist saved
-      // with the session's checks, which the editor's boxes show but its text
-      // doesn't hold — the running ticket's as just answered.
-      const answered = running.ticket;
-      const text = withChecks(ready.text, (identity) =>
-        answered && 'ticketId' in identity && identity.ticketId === answered.ticketId
-          ? answered.checked
-          : planEditor.checkedOf(identity),
-      );
-      // Only people mentioned in the wrap-up itself hear about it, not those
-      // the plan it opened on already mentioned.
-      const plan = sessionPost ?? sessionPostFetch ?? postedPlan;
-      const mentionedInPlan = new Set([
-        ...(plan?.content.mentions ?? []),
-        ...postRefsIn(plan?.content.text ?? '', ready.refs).mentions,
-      ]);
-      await huddleApi.createPost({
-        teamId: gateTeamId,
-        content: {
-          text,
-          mentions: ready.mentionUserIds.filter((id) => !mentionedInPlan.has(id)),
-        },
-        postDate: toDateString(new Date(at)),
-        clockEventId: activeClockEvent.id,
-        wrapUp: true,
-        ticketIds: ready.ticketIds,
-        attachments: ready.media.map(toPostAttachment),
-      });
+      const { mentionUserIds } = ready;
+      const trimmed = ready.text;
+      const selectedTicketIds = ready.ticketIds;
+      const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
+      const postAttachments = ready.media.map(toPostAttachment);
+      const planAttachments =
+        sessionPost?.attachments ?? sessionPostFetch?.attachments ?? postedPlan?.attachments ?? [];
+      if (effectivePostId) {
+        // Safety net against losing the plan.
+        //
+        // This update REPLACES the plan post's text. If the editor never
+        // received the plan (seed lookup failed, or RichEditor ignored it),
+        // submitting would silently destroy what the user wrote at clock-in.
+        // Only merge when the editor demonstrably never showed the plan —
+        // `shownSeedRef` is what it actually mounted with — so text the user
+        // deliberately edited or deleted is left exactly as they left it.
+        const planText = (
+          sessionPost?.content.text ??
+          sessionPostFetch?.content.text ??
+          postedPlan?.content.text ??
+          ''
+        ).trim();
+        // The draft handed over at clock-in is the plan, even where the
+        // editor's copy differs from the posted one (image alt text).
+        // It may show the plan as today's checklist, its tickets as lines.
+        const shownPlan = planTicketsAsChecklist(planText);
+        const editorNeverSawPlan =
+          planText !== '' &&
+          handedOverRef.current?.plan !== planText &&
+          !shownSeedRef.current.includes(planText) &&
+          !shownSeedRef.current.includes(shownPlan);
+        // The checklist is saved with the plan's checks: a box in the editor
+        // shows the session's state, which its text doesn't hold. The running
+        // ticket's is as just answered, which the plan read here may not show yet.
+        const answered = running.ticket;
+        const textToSave = withChecks(
+          editorNeverSawPlan && !trimmed.includes(planText) && !trimmed.includes(shownPlan)
+            ? `${planText}\n\n${trimmed}`
+            : trimmed,
+          (identity) =>
+            answered && 'ticketId' in identity && identity.ticketId === answered.ticketId
+              ? answered.checked
+              : planEditor.checkedOf(identity),
+        );
+        // Mentions a plan only attached (posted before plans linked them, so
+        // no `@Name` in its text) were never shown, so stay — like tickets below.
+        const planMentions =
+          sessionPost?.content.mentions ?? sessionPostFetch?.content.mentions ?? [];
+        // The text saved may have the plan put back, naming more than the draft.
+        const textNeeds = refsNeeded(textToSave);
+        const saveNeeds = {
+          ...textNeeds,
+          members: textNeeds.members || planMentions.length > 0,
+        };
+        const saveRefs =
+          gateTeamId && !refsCover(ready.looked, saveNeeds)
+            ? await fetchTeamRefs(gateTeamId, saveNeeds)
+            : ready.refs;
+        const saved = postRefsIn(textToSave, saveRefs);
+        const mentionedInPlan = postRefsIn(planText, saveRefs).mentions;
+        const memberIds = new Set(saveRefs.members.map((member) => member.id));
+        const attachedOnlyMentions = planMentions.filter(
+          (id) => memberIds.has(id) && !mentionedInPlan.includes(id),
+        );
+        const linkedInPlan = ticketIdsInText(planText);
+        const attachedOnly = (sessionPost?.tickets ?? sessionPostFetch?.tickets ?? [])
+          .map((t) => t.id)
+          .filter((id) => !linkedInPlan.includes(id));
+
+        await huddleApi.updatePost(
+          effectivePostId,
+          {
+            text: textToSave,
+            // Read from the text saved: a mention deleted in the wrap-up goes.
+            mentions: [...new Set([...attachedOnlyMentions, ...saved.mentions])],
+          },
+          {
+            wrapUp: true,
+            // Added to the plan's own files, never in place of them: the
+            // wrap-up doesn't show those, so it can't mean to drop them (and
+            // the update deletes what it drops).
+            attachments: postAttachments.length
+              ? [...planAttachments, ...postAttachments]
+              : undefined,
+            // The list replaces the plan's. Tickets the plan's text links are
+            // the wrap-up's to keep or delete; ones a plan only attached
+            // (posted before plans linked them) were never shown, so stay.
+            // Read from the text saved, which may have the plan put back in.
+            ticketIds: [...new Set([...attachedOnly, ...saved.ticketIds])],
+          },
+        );
+      } else {
+        // Recovery: no plan post exists (gate enabled mid-shift). Create one
+        // that doubles as the wrap-up, linked to the session. Unlike the
+        // update path above this needs a team, and the wrap-up composer can
+        // open without one — surface that instead of posting a teamless post.
+        if (!gateTeamId) throw new Error(clockText.noWrapUpTeam);
+        await huddleApi.createPost({
+          teamId: gateTeamId,
+          content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds },
+          postDate: toDateString(new Date()),
+          clockEventId: activeClockEvent.id,
+          wrapUp: true,
+          ticketIds: selectedTicketIds,
+          attachments: postAttachments,
+        });
+      }
       giveBack = null;
       draftGenRef.current += 1;
+      cachedPlanPostIdRef.current = null;
       await clockOut({ at });
       // Cleared only now, so the editor doesn't blank while clock-out runs.
       setText('');

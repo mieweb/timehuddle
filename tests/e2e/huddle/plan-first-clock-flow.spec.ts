@@ -9,7 +9,7 @@
  * 3. When enabled: User must write a plan before clocking in, and add a wrap-up before clocking out
  * 4. When disabled: User can clock in/out normally without posting to huddle
  * 5. Posts created via clock flow appear in the huddle feed
- * 6. A wrap-up is its own post; the plan post stays as posted
+ * 6. Wrap-ups are appended to the same post
  *
  * Scenarios tested:
  *   - Plan requirement disabled — can clock in/out freely
@@ -22,7 +22,6 @@ import { TeamSettingsPage } from '../pages/TeamSettingsPage';
 import { ClockPage } from '../pages/ClockPage';
 import { HuddlePage } from '../pages/HuddlePage';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { inboxMessage, openPostInInbox } from './helpers';
 
 test.describe('Plan-First Clock Flow', () => {
   let teamsPage: TeamsPage;
@@ -280,7 +279,7 @@ test.describe('Plan-First Clock Flow', () => {
     expect(planGateNowVisible).toBe(true);
   });
 
-  test('posts the wrap-up as its own post and leaves the plan post as posted', async ({ page }) => {
+  test('should verify wrap-up is appended to same post (not create new post)', async ({ page }) => {
     test.slow();
     // Create team
     await teamsPage.goto();
@@ -317,13 +316,9 @@ test.describe('Plan-First Clock Flow', () => {
     // Navigate to huddle
     await huddlePage.goto();
 
-    // The wrap-up opens on the plan, so both posts hold the plan's text; only
-    // the wrap-up holds what was added at clock-out (#887, append-only).
-    const posts = inboxMessage(page, planText);
-    await openPostInInbox(page, planText, posts.filter({ hasText: wrapUpText }));
-    await expect(posts).toHaveCount(2);
-    await expect(posts.filter({ hasText: wrapUpText })).toHaveCount(1);
-    await expect(posts.filter({ hasText: wrapUpText })).toContainText('Wrap-up');
-    await expect(posts.filter({ hasNotText: wrapUpText })).toContainText('Plan');
+    // One post carries both halves — the wrap-up was appended to the plan.
+    const postWithMarker = await huddlePage.getPostText(uniqueMarker);
+    expect(postWithMarker).toContain(planText);
+    expect(postWithMarker).toContain(wrapUpText);
   });
 });

@@ -25,8 +25,9 @@ Ticked once on `main`; the PR that delivers each is named.
       contains it, and clock-in works without typing more (M3, #888)
 - [ ] Checking an item on the Clock page shows on the board and appends a Huddle
       post, with the plan post unchanged (M4, in review: #893)
-- [ ] Clocking out leaves the morning's plan post as it was; the wrap-up is its
-      own post (M5, in review: #896)
+- [ ] Clocking out updates the morning's plan post in place: its checklist shows
+      the final checks and the wrap-up follows it, with no new post at the bottom
+      of Huddle (M5, in review: #896)
 - [ ] After clock-out, only unchecked items remain pinned; a ticket still running
       is asked about first (M5, in review: #896)
 - [ ] Older plan posts render unchanged, a wrap-up written onto one before M5
@@ -53,6 +54,11 @@ said something else.
 - **Once posted, the plan is the source of truth.** People aren't expected to
   change it over and over. Edit it only when the plan changes radically and it's
   absolutely necessary.
+- **The one planned edit is the wrap-up.** Clocking out updates the plan post
+  in place: its checklist takes the day's final checks and the wrap-up follows
+  it, so the day reads as one post instead of a second one at the bottom of the
+  timeline. That's what the checklist is for. A Pulse wrap-up video is its own
+  post (M5).
 - **An edit must be communicated, not silent.** Teammates and managers should be
   able to see that the plan changed, when, and by whom — the edit is treated
   like a post in its own right. The original and effective dates, the edited
@@ -249,7 +255,7 @@ and forth between tickets all day.
   **We don't want that UI, and we don't edit the Huddle post to drop an item.**
   The plan is written before clocking in. **Once clocked in it isn't edited by
   hand:** the only change mid-session is a ticket pinned then joining it (M2),
-  and the wrap-up at clock-out is its own post, starting from the plan (M5). Huddle's ⋯ → **Edit message**
+  and the wrap-up at clock-out updates the plan post in place (M5). Huddle's ⋯ → **Edit message**
   stays for radical rewrites only (see the
   [principle](#principle-the-huddle-timeline-is-append-only)).
 - **Pinning mid-session adds the ticket to today's plan** on the Board and Clock
@@ -479,12 +485,11 @@ post is not edited to show progress.
 - [x] Read the plan state from the session data (M4's `clockevents.planItems`),
       not from the posted message. A session without it unpins nothing, so this
       takes effect once M4 merges
-- [x] Post the wrap-up as its own message instead of replacing the plan text (see
-      [Incidental Findings](#incidental-findings-on-main)): today's checklist with
-      its final checks, plus what was written at clock-out. It notifies only the
-      people mentioned in it who the plan didn't already mention. A Pulse wrap-up
-      is its own post too, or joins the session's wrap-up post when there is one
-      (`appendWrapUp`)
+- [x] The wrap-up updates the plan post in place, not a new post at the bottom
+      of Huddle: today's checklist with its final checks (the running ticket's as
+      answered), plus what was written at clock-out. A Pulse wrap-up video is its
+      own post (`appendWrapUp`). Decided after trying the wrap-up as its own post:
+      see [Incidental Findings](#incidental-findings-on-main)
 - [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked
       item pinned, for both clock-out paths. Covered for the wrap-up by
       `tests/e2e/tickets/carry-over.spec.ts`; Pulse shares the server path
@@ -538,9 +543,11 @@ is how ticket videos are meant to show, and the design should keep it.
   `http://localhost:4000/v1/seed/import/parse` (the retired Fastify API) and fails
   with "Failed to fetch".
 - **The wrap-up replaces the plan.** Clocking out with a wrap-up overwrites the
-  plan text in the session post ("(edited)", relabelled "Wrap-up"). This breaks
-  the [principle](#principle-the-huddle-timeline-is-append-only): readers lose
-  the plan they read in the morning. Fixed in M5: the wrap-up is its own post.
+  plan text in the session post ("(edited)", relabelled "Wrap-up"). M5 first
+  posted the wrap-up as its own post instead, but that put the day's update at
+  the bottom of Huddle, apart from its plan. **Kept by decision:** the wrap-up
+  is the plan post's final state, its checklist showing what got done — the one
+  planned edit in the [principle](#principle-the-huddle-timeline-is-append-only).
 - **Wrap-up composer opens with the plan text.** After clocking in, "What did you
   work on?" already contains the plan.
 

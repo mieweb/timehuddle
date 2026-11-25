@@ -927,53 +927,21 @@ export async function createHuddlePost(
 }
 
 /**
- * Add a wrap-up to `userId`'s clock session: `line` and `attachment` go on the
- * session's wrap-up post, which is created when it has none yet. The plan post
- * is never changed — the Huddle timeline is append-only. Shared with
- * server-side callers — a Pulse wrap-up video that lands on its own.
+ * Post a wrap-up for `userId`'s clock session as its own post: `line` and
+ * `attachment`, stamped as the session's wrap-up. A text wrap-up from the Clock
+ * page updates the plan post instead; a video is its own post. Shared with
+ * server-side callers — a Pulse wrap-up video that lands on its own, which
+ * checks first that it isn't posted already.
  */
 export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment }) {
-  await requireTeamMember(userId, teamId);
-  const posts = rawDb().collection('huddlePosts');
-  // Legacy posts carry the team id as an ObjectId; the feed matches both forms, so this does too.
-  const wrapUpPost = await posts.findOne(
-    {
-      teamId: { $in: [teamId, toId(teamId)] },
-      userId,
-      clockEventId,
-      wrapUpAt: { $ne: null },
-      ...PUBLISHED,
-      ...SESSION_POST_FILTER,
-    },
-    { sort: SESSION_POST_SORT },
-  );
-  if (!wrapUpPost) {
-    await createHuddlePost(userId, {
-      teamId,
-      content: { text: line, mentions: [] },
-      attachments: [attachment],
-      postDate,
-      clockEventId,
-      wrapUp: true,
-    });
-    return;
-  }
-  // Appended to the post as stored at write time (an update pipeline), so an
-  // edit to the wrap-up made meanwhile isn't overwritten. `$literal`: text
-  // starting with `$` would otherwise read as a field path.
-  const text = { $ifNull: ['$content.text', ''] };
-  await posts.updateOne({ _id: wrapUpPost._id }, [
-    {
-      $set: {
-        'content.text': {
-          $cond: [{ $eq: [text, ''] }, { $literal: line }, { $concat: [text, '\n\n', { $literal: line }] }],
-        },
-        attachments: { $concatArrays: [{ $ifNull: ['$attachments', []] }, [{ $literal: attachment }]] },
-        wrapUpAt: '$$NOW',
-        updatedAt: '$$NOW',
-      },
-    },
-  ]);
+  await createHuddlePost(userId, {
+    teamId,
+    content: { text: line, mentions: [] },
+    attachments: [attachment],
+    postDate,
+    clockEventId,
+    wrapUp: true,
+  });
 }
 
 /**
