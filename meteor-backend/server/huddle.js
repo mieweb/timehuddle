@@ -654,6 +654,14 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
       const timer = change.fullDocument;
       const postId = timer?.huddlePostId;
       if (!postId) return;
+      // Most changes are other teams': skip them before reading their times.
+      if (!sentIds.has(postId)) {
+        if (!isValidId(postId)) return;
+        const post = await rawDb()
+          .collection('huddlePosts')
+          .findOne({ _id: new ObjectId(postId) }, { projection: { teamId: 1 } });
+        if (!post || String(post.teamId) !== teamId) return;
+      }
       const prior = await priorTimes([timer]);
       const postTimer = toPostTimer(timer, prior.get(String(timer._id)));
       if (sentIds.has(postId)) self.changed('huddlePosts', postId, { timer: postTimer });
