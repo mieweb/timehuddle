@@ -435,8 +435,7 @@ export function RedmineSuggestions({
   const choose = useCallback(
     (row: Row) => {
       // Opening a result leaves the search, as the dropdown closes on the web.
-      if (row.kind === 'ticket' || row.kind === 'issue' || row.kind === 'source')
-        setSheetOpen(false);
+      if (row.kind !== 'show-all' && row.kind !== 'retry') setSheetOpen(false);
       if (row.kind === 'ticket')
         navigate(ticketDetailPath({ sourceId: 'huddle', id: row.ticket.id }));
       else if (row.kind === 'issue')
