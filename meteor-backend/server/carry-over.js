@@ -6,7 +6,7 @@
  *
  * Called from `clockStop`, which the Clock out button, a wrap-up and a Pulse
  * wrap-up all end a session through. An automatic clock-out (agenda's
- * `stopActiveClock`) leaves the pins as they are.
+ * `finishAutoClockOut`) leaves the pins as they are.
  */
 import { rawDb } from './collections';
 import { releasedTicketIds } from './carry-over-core';
@@ -14,13 +14,18 @@ import { releasePins } from './my-board';
 import { huddleTicketOf } from './session-plan';
 
 /**
- * The Huddle ticket the user's running timer is on, or null. Read before
- * clock-out closes the timer.
+ * The Huddle ticket the user's timer was running on at the clock-out time
+ * `at`, or null. Clock-out closes timers at `at`, so this also finds it when
+ * a retry finishes an interrupted clock-out, and it skips timers of a shift
+ * started since.
  */
-export async function runningHuddleTicketId(userId) {
+export async function runningHuddleTicketId(userId, at) {
   const running = await rawDb()
     .collection('timers')
-    .findOne({ userId, endTime: null }, { projection: { workItemId: 1 } });
+    .findOne(
+      { userId, startTime: { $lte: at }, $or: [{ endTime: null }, { endTime: { $gte: at } }] },
+      { projection: { workItemId: 1 }, sort: { startTime: -1 } }
+    );
   return running ? huddleTicketOf(running.workItemId) : null;
 }
 

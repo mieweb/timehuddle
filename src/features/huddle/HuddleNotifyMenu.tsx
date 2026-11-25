@@ -23,7 +23,7 @@ import {
   useMediaQuery,
   useToast,
 } from '@mieweb/ui';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { settingsPath } from '../settings/settingsSections';
 import { HUDDLE_TEAM_LEVELS, NOTIFICATION_STRINGS as S } from '../notifications/notificationCopy';
@@ -43,9 +43,13 @@ export function HuddleNotifyMenu({ teamId, teamName }: HuddleNotifyMenuProps) {
   const { prefs, error, teamLevel, setTeamLevel } = useNotificationPrefs();
   const toast = useToast();
   // The menu has closed by the time a save fails, so say so where it's heard.
+  // Once per error: `toast` changes with every toast shown, so an effect on it
+  // would show this one again and again.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   useEffect(() => {
-    if (error) toast.error(error);
-  }, [error, toast]);
+    if (error) toastRef.current.error(error);
+  }, [error]);
   if (!prefs) return null;
 
   const level = teamLevel(teamId);

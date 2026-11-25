@@ -143,6 +143,29 @@ describe('timer updates in Huddle', () => {
     ]);
   });
 
+  it("coming back to a ticket continues its time: the update counts on from what it had", async () => {
+    const first = await start(ticketA);
+    await start(ticketB);
+    // Alpha's first stint ran two minutes.
+    const db = await getDb();
+    await db
+      .collection('timers')
+      .updateOne(
+        { _id: new ObjectId(first.result.session.id) },
+        { $inc: { startTime: -120_000, durationSeconds: 120 } },
+      );
+    const again = await start(ticketA);
+
+    const res = await wormhole<{ posts: { id: string; timer: { priorSeconds: number } | null }[] }>(
+      'huddle.getPosts',
+      { teamId, since: new Date(Date.now() - 60_000).toISOString() },
+      jwt,
+    );
+    const timerOf = (postId: string) => res.result.posts.find((p) => p.id === postId)?.timer;
+    expect(timerOf(first.result.update!.postId)?.priorSeconds).toBe(0);
+    expect(timerOf(again.result.update!.postId)?.priorSeconds).toBeGreaterThanOrEqual(120);
+  });
+
   it("reads each update with its stint's timer: running, then stopped by the switch", async () => {
     const first = await start(ticketA);
     const second = await start(ticketB);

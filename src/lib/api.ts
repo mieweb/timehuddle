@@ -1385,7 +1385,7 @@ export interface HuddlePost {
   /** Resolved from `clockEventId` at read time; absent if the session is gone. */
   session?: { startTime: number; endTime: number | null };
   /** The timer a "Working on …" update started, read from it at read time; null for any other post. */
-  timer?: { startTime: number; endTime: number | null } | null;
+  timer?: { startTime: number; endTime: number | null; priorSeconds?: number } | null;
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
   /** Scheduled post (#596): only its author sees it, and nobody is notified, until then. */
@@ -2075,6 +2075,21 @@ export const notificationApi = {
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
     wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
+
+  /**
+   * Answer the shift-end reminder. The server deletes the reminder; 'disagree' also cancels the 8h
+   * auto clock-out. `clockEventId` lets the answer land even if the reminder row is already gone.
+   */
+  respondShiftReminder: (
+    notificationId: string,
+    action: 'agree' | 'disagree',
+    clockEventId?: string,
+  ) =>
+    wormholeCall<{ ok: boolean }>('clock.respondShiftReminder', {
+      notificationId,
+      action,
+      ...(clockEventId ? { clockEventId } : {}),
+    }),
 
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),

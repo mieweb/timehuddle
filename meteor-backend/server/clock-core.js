@@ -6,8 +6,34 @@
  * stays byte-for-byte consistent regardless of which backend (or job) writes
  * the close-out. No Meteor method/DDP context here — plain async helpers.
  */
-import { ClockEvents, ClockBreaks } from './collections';
+import { randomBytes } from 'crypto';
+
+import { ClockEvents, ClockBreaks, rawDb } from './collections';
 import { closeAllForUser } from './timer-core';
+
+/**
+ * A session can hold several posts (the plan plus replies sent from the Huddle
+ * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
+ * earliest — never simply the newest, which may be an inbox reply.
+ */
+export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
+
+/**
+ * Narrows a session's posts to its plan/wrap-up candidates: an update posted
+ * from Huddle while clocked in joins the session (so it shows in that shift)
+ * but is never its plan, nor where the wrap-up goes.
+ */
+export const SESSION_POST_FILTER = { sessionUpdate: { $ne: true } };
+
+/** A clock session's Huddle post (its plan + wrap-up), or null. Drafts never count. */
+export function findSessionPost(teamId, userId, clockEventId) {
+  return rawDb()
+    .collection('huddlePosts')
+    .findOne(
+      { teamId, userId, clockEventId, status: { $ne: 'draft' }, ...SESSION_POST_FILTER },
+      { sort: SESSION_POST_SORT }
+    );
+}
 
 /** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
 export const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
@@ -203,7 +229,6 @@ export function toPublicClockEvent(event, breaks) {
     endTime,
     shiftReminderResponse: event.shiftReminderResponse ?? null,
     shiftAutoClockoutWorkSecs: event.shiftAutoClockoutWorkSecs ?? null,
-    shiftNextReminderWorkSecs: event.shiftNextReminderWorkSecs ?? null,
     // Today's plan's revision, to say it changed; its items are read through
     // `clock.plan`, which checks the reader may see them (session-plan.js).
     planRev: event.planRev ?? null,
@@ -211,33 +236,121 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
- * Close the user's active clock event in a team: close any running ticket
- * timers, auto-classify any open break, compute accumulatedTime (span minus
- * meal breaks), and set endTime. Returns the updated event doc, or null when
- * there was nothing open. Mirrors ClockService.stop / clock.stop.
+ * How long one run owns finishing a closed session. A run that dies leaves the
+ * lease to expire, so another can take over; one that fails hands it back.
  */
-export async function stopActiveClock(userId, teamId, now = Date.now()) {
-  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+export const CLOSE_LEASE_MS = 60_000;
+
+/** A fresh owner token: a run acts on a lease only while its own token is on it. */
+export function newCloseLeaseToken() {
+  return randomBytes(12).toString('hex');
+}
+
+/**
+ * Take over finishing a closed session whose `pendingFlag` is still set, unless
+ * another run holds an unexpired lease on it. One write, so two runs never both
+ * win. Returns this run's owner token, or null when another run owns it.
+ */
+export async function acquireCloseLease(eventId, pendingFlag) {
+  const token = newCloseLeaseToken();
+  const taken = await ClockEvents.updateAsync(
+    {
+      _id: eventId,
+      [pendingFlag]: true,
+      $or: [{ closeLeaseUntil: { $exists: false } }, { closeLeaseUntil: { $lt: Date.now() } }],
+    },
+    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS, closeLeaseToken: token } }
+  );
+  return taken === 1 ? token : null;
+}
+
+/**
+ * Check this run still owns the lease, and extend it. Called before each side
+ * effect: a run that stalled past its lease, and was taken over, stops here
+ * (throws) instead of finishing alongside the run that replaced it.
+ */
+export async function renewCloseLease(eventId, token) {
+  const kept = await ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $set: { closeLeaseUntil: Date.now() + CLOSE_LEASE_MS } }
+  );
+  if (kept === 0) throw new Error('The clock-out lease was taken over by another run');
+}
+
+/** Hand back this run's lease after a failure; a lease another run now holds is left alone. */
+export function releaseCloseLease(eventId, token) {
+  return ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $unset: { closeLeaseUntil: '', closeLeaseToken: '' } }
+  );
+}
+
+/** Mark the clock-out finished, but only as the run that owns the lease. */
+export async function completeClose(eventId, token, pendingFlag) {
+  const done = await ClockEvents.updateAsync(
+    { _id: eventId, closeLeaseToken: token },
+    { $unset: { [pendingFlag]: '', closeLeaseUntil: '', closeLeaseToken: '' } }
+  );
+  if (done === 0) throw new Error('The clock-out lease was taken over by another run');
+}
+
+/**
+ * Claim the end of the user's open clock event in a team for an automatic
+ * clock-out: set endTime and accumulatedTime (span minus meal breaks) and mark
+ * the event `autoClockoutPending`, so the rest (settleClosedClock, the notices)
+ * can be finished later if it is interrupted. Returns `{ event, token }`: the
+ * claimed event and the owner token this claim put on its lease (the token is
+ * never read back from the event, which another run may have replaced by then).
+ * Null when nothing matched.
+ *
+ * `onlyIf` is a filter the event must still match at the moment it is closed.
+ * The close is a single conditional write, so an answer saved meanwhile (e.g.
+ * Continue Working) or a manual clock-out wins and nothing is closed or reported.
+ */
+export async function claimAutoClockout(userId, teamId, now, onlyIf = {}) {
+  const filter = { userId, teamId, endTime: null, ...onlyIf };
+  const event = await ClockEvents.findOneAsync(filter);
   if (!event) return null;
 
-  const eventId = event._id.toHexString();
+  // An open break counts the same open or closed at `now` (classifyBreak), so
+  // the total can be worked out before the event is claimed.
+  const breaks = await findBreaksForEvent(event._id.toHexString());
+  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const accumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
 
-  // Close any running timer sessions for this user (mirrors clock.stop).
-  await closeAllForUser(userId, now);
+  const token = newCloseLeaseToken();
+  const claimed = await ClockEvents.updateAsync(
+    { ...filter, _id: event._id },
+    {
+      $set: {
+        endTime: now,
+        accumulatedTime,
+        autoClockoutPending: true,
+        closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+        closeLeaseToken: token,
+      },
+    }
+  );
+  if (claimed === 0) return null;
+  return { event: await ClockEvents.findOneAsync(event._id), token };
+}
 
-  const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
+/**
+ * What closing a clock event leaves to do: end the user's running ticket timers
+ * and any open break at the event's endTime. Safe to run again, and only timers
+ * that began by then are closed, so a shift started since keeps its own.
+ */
+export async function settleClosedClock(event) {
+  await closeAllForUser(event.userId, event.endTime, { startedBy: event.endTime });
+
+  const openBreak = await ClockBreaks.findOneAsync({
+    clockEventId: event._id.toHexString(),
+    endTime: null,
+  });
   if (openBreak) {
-    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+    const durationSeconds = Math.floor((event.endTime - openBreak.startTime) / 1000);
     await ClockBreaks.updateAsync(openBreak._id, {
-      $set: { endTime: now, ...classifyBreak(durationSeconds) },
+      $set: { endTime: event.endTime, ...classifyBreak(durationSeconds) },
     });
   }
-
-  const breaks = await findBreaksForEvent(eventId);
-  const shiftSpan = Math.floor((now - event.startTime) / 1000);
-  const deducted = computeDeductedBreakSeconds(breaks, now);
-  const accumulatedTime = Math.max(0, shiftSpan - deducted);
-
-  await ClockEvents.updateAsync(event._id, { $set: { endTime: now, accumulatedTime } });
-  return ClockEvents.findOneAsync(event._id);
 }

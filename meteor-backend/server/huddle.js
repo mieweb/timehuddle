@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { resolveSince } from './huddle-window-core';
+import { priorSeconds } from './timer-updates-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
@@ -36,19 +37,9 @@ import {
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
-/**
- * A session can hold several posts (the plan plus replies sent from the Huddle
- * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
- * earliest — never simply the newest, which may be an inbox reply.
- */
-export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
-
-/**
- * Narrows a session's posts to its plan/wrap-up candidates: an update posted
- * from Huddle while clocked in joins the session (so it shows in that shift)
- * but is never its plan, nor where the wrap-up goes.
- */
-export const SESSION_POST_FILTER = { sessionUpdate: { $ne: true } };
+// Where a clock session's post is found lives with the clock (clock-core), so
+// the Agenda jobs can use it without importing this module.
+import { SESSION_POST_FILTER, SESSION_POST_SORT } from './clock-core';
 
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
 
@@ -372,9 +363,45 @@ async function attachSessions(posts) {
   return posts;
 }
 
-/** A timer session as a post shows it: when it started, and when it stopped (null while it runs). */
-function toPostTimer(timer) {
-  return { startTime: timer.startTime, endTime: timer.endTime ?? null };
+/**
+ * A timer session as a post shows it: when it started, when it stopped (null
+ * while it runs), and the time its ticket already had this clock session.
+ */
+function toPostTimer(timer, prior = 0) {
+  return { startTime: timer.startTime, endTime: timer.endTime ?? null, priorSeconds: prior };
+}
+
+/**
+ * For each of `timers`, its ticket's time this clock session before it began
+ * (`priorSeconds`), so a "Working on …" update for a ticket come back to
+ * continues its time. Its ticket is its work item's; a timer outside a clock
+ * session has none before it.
+ * @returns {Promise<Map<string, number>>} by timer id
+ */
+async function priorTimes(timers) {
+  const inSession = timers.filter((t) => t.clockEventId);
+  if (!inSession.length) return new Map();
+  const sessions = await rawDb()
+    .collection('timers')
+    .find(
+      { $or: inSession.map((t) => ({ userId: t.userId, clockEventId: t.clockEventId })) },
+      { projection: { userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+  const itemIds = [...new Set(sessions.map((t) => t.workItemId))].filter(isValidId);
+  const items = itemIds.length
+    ? await rawDb()
+        .collection('workitems')
+        .find({ _id: { $in: itemIds.map((id) => new ObjectId(id)) } }, { projection: { source: 1, ticketId: 1 } })
+        .toArray()
+    : [];
+  const ticketOf = new Map(items.map((item) => [item._id.toHexString(), `${item.source ?? 'huddle'}:${item.ticketId}`]));
+  const ticketKey = (t) => `${t.userId}|${t.clockEventId}|${ticketOf.get(t.workItemId) ?? t.workItemId}`;
+  const byTicket = new Map();
+  for (const t of sessions) byTicket.set(ticketKey(t), [...(byTicket.get(ticketKey(t)) ?? []), t]);
+  return new Map(
+    inSession.map((t) => [String(t._id), priorSeconds(t, byTicket.get(ticketKey(t)) ?? [])]),
+  );
 }
 
 /**
@@ -390,13 +417,15 @@ async function attachTimers(posts) {
     .collection('timers')
     .find(
       { huddlePostId: { $in: ids } },
-      { projection: { huddlePostId: 1, userId: 1, startTime: 1, endTime: 1 } },
+      { projection: { huddlePostId: 1, userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1 } },
     )
     .toArray();
   const byPost = new Map(timers.map((t) => [t.huddlePostId, t]));
+  const prior = await priorTimes(timers);
   posts.forEach((post, i) => {
     const timer = byPost.get(ids[i]);
-    post.timer = timer && timer.userId === post.userId ? toPostTimer(timer) : null;
+    post.timer =
+      timer && timer.userId === post.userId ? toPostTimer(timer, prior.get(String(timer._id))) : null;
   });
   return posts;
 }
@@ -602,11 +631,16 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
     }
   }));
 
-  timerStream.on('change', Meteor.bindEnvironment((change) => {
-    const timer = change.fullDocument;
-    const postId = timer?.huddlePostId;
-    if (!postId || !sentIds.has(postId)) return;
-    self.changed('huddlePosts', postId, { timer: toPostTimer(timer) });
+  timerStream.on('change', Meteor.bindEnvironment(async (change) => {
+    try {
+      const timer = change.fullDocument;
+      const postId = timer?.huddlePostId;
+      if (!postId || !sentIds.has(postId)) return;
+      const prior = await priorTimes([timer]);
+      self.changed('huddlePosts', postId, { timer: toPostTimer(timer, prior.get(String(timer._id))) });
+    } catch (err) {
+      console.error('[huddle] timer change stream error:', err);
+    }
   }));
 });
 

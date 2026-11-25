@@ -21,11 +21,20 @@ import {
 import { getPrefs } from './notification-prefs';
 import { resolveSettings } from './settings';
 import { isViewingTeam } from './presence';
+import { emitClockOutActivity } from './activity-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 function notifications() {
   return rawDb().collection('notifications');
+}
+
+/** A team by hex or legacy string id, or null. */
+export async function findTeam(teamId) {
+  if (!isValidId(teamId)) return null;
+  return rawDb()
+    .collection('teams')
+    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
 }
 
 /**
@@ -35,10 +44,8 @@ function notifications() {
 async function orgPolicyFor(data) {
   const setting = orgSettingForType(data.type);
   const teamId = data.teamId ? String(data.teamId) : null;
-  if (!setting || !isValidId(teamId)) return null;
-  const team = await rawDb()
-    .collection('teams')
-    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
+  if (!setting) return null;
+  const team = await findTeam(teamId);
   return team ? (await resolveSettings(team))[setting] : null;
 }
 
@@ -133,6 +140,103 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
       }).catch(() => {})
     )
   );
+}
+
+/** Where a clock-out notice leads: the session's Huddle post, else the member's Work tab. */
+export function clockOutUrl({ userId, teamId, sessionPost }) {
+  return sessionPost
+    ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+    : `/app/profile/${userId}?tab=work`;
+}
+
+/**
+ * Send a clock-out notice at most once per recipient and session, so finishing
+ * a clock-out that was interrupted (and so runs again) never repeats one.
+ */
+async function createClockOutNoticeOnce(notice) {
+  const sent = await notifications().findOne({
+    userId: notice.userId,
+    'data.type': notice.data.type,
+    'data.clockEventId': notice.data.clockEventId,
+  });
+  if (!sent) await createNotification(notice);
+}
+
+/**
+ * Tell a team's admins (and, for a manual clock-out, the member) that a
+ * member clocked out. Links to the session's Huddle post when it has one,
+ * else the member's Work tab. An `auto` clock-out skips the member's own
+ * notice: the 8h job sends its own. Each notice carries the session's
+ * `clockEventId` and goes out once, as does the member's activity-feed entry.
+ * Returns the member's display name.
+ */
+export async function notifyClockOut({
+  userId,
+  teamId,
+  clockEventId,
+  team,
+  accumulatedTime,
+  sessionPost,
+  auto = false,
+}) {
+  const userName = await userDisplayName(userId);
+  const totalSecs = accumulatedTime ?? 0;
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  const url = clockOutUrl({ userId, teamId, sessionPost });
+  const adminBody = auto
+    ? `${userName} was automatically clocked out of ${team.name} after 8 hours (${durationText})`
+    : `${userName} clocked out of ${team.name} (${durationText})`;
+
+  await Promise.all(
+    (team.admins ?? [])
+      .filter((id) => id !== userId)
+      .map((adminId) =>
+        createClockOutNoticeOnce({
+          userId: adminId,
+          title: 'Huddle',
+          body: adminBody,
+          data: {
+            type: 'clock-out',
+            userId,
+            userName,
+            teamName: team.name,
+            teamId,
+            clockEventId,
+            duration: durationText,
+            url,
+          },
+        }).catch(() => {})
+      )
+  );
+
+  if (!auto) {
+    createClockOutNoticeOnce({
+      userId,
+      title: 'Huddle',
+      body: `You clocked out of ${team.name} (${durationText})`,
+      data: {
+        type: 'clock-out-self',
+        teamName: team.name,
+        teamId,
+        clockEventId,
+        duration: durationText,
+        url,
+      },
+    }).catch(() => {});
+  }
+
+  await emitClockOutActivity({
+    userId,
+    userName,
+    teamId,
+    teamName: team.name,
+    clockEventId,
+    durationSeconds: accumulatedTime ?? undefined,
+    auto,
+  });
+  return userName;
 }
 
 /** Resolve a user's display name (better-auth `user` collection). */
