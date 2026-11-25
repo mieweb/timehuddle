@@ -133,6 +133,28 @@ describe('clock-out carry-over', () => {
     expect(await db.collection('my_board').countDocuments({ userId })).toBe(4);
   });
 
+  it('carries a session over once: a retry leaves a ticket pinned again since', async () => {
+    const db = await getDb();
+    const sessionId = await clockIn();
+    await db
+      .collection('clockevents')
+      .updateOne({ _id: sessionId }, { $set: { planItems: [{ id: 'p1', ticketId: ids.a, checked: true }] } });
+    expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(true);
+    expect(await pins()).not.toContain(`huddle:${ids.a}`);
+
+    // Pinned again, then the clock-out is finished again, as after a step failed.
+    await db.collection('my_board').updateOne({ userId, ticketId: ids.a }, { $set: { pinOrder: 9 } });
+    await db
+      .collection('clockevents')
+      .updateOne(
+        { _id: sessionId },
+        { $set: { manualClockoutPending: true }, $unset: { closeLeaseUntil: '', closeLeaseToken: '' } },
+      );
+    expect((await wormhole('clock.stop', { teamId }, jwt)).ok).toBe(true);
+
+    expect(await pins()).toContain(`huddle:${ids.a}`);
+  });
+
   it('leaves the pins alone for a session without a plan', async () => {
     await clockIn();
     const before = await pins();

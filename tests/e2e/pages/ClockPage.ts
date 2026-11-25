@@ -57,11 +57,15 @@ export class ClockPage extends BasePage {
    * if it asks: checked off it leaves Pinned, kept it stays for the next session.
    */
   async answerRunningTicket(answer: RunningTicketAnswer = 'Keep for next session') {
-    const asked = await this.runningTicketDialog
-      .waitFor({ state: 'visible', timeout: 1500 })
-      .then(() => true)
-      .catch(() => false);
-    if (!asked) return;
+    // The question can wait on the plan being read, so wait for it or for the
+    // clock-out itself, not a fixed moment.
+    const clockedOut = this.banner.filter({ hasText: /Clocked out/i });
+    await this.runningTicketDialog
+      .or(clockedOut)
+      .first()
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .catch(() => {});
+    if (!(await this.runningTicketDialog.isVisible())) return;
     await this.runningTicketDialog.getByRole('button', { name: answer }).click();
     await this.runningTicketDialog.waitFor({ state: 'hidden', timeout: 10000 });
   }
