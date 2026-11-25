@@ -20,6 +20,8 @@ export interface PostTimer {
   startTime: number;
   /** Null while it runs. */
   endTime: number | null;
+  /** Its logged time once stopped: a correction may differ from its start to end. */
+  durationSeconds?: number | null;
   /** The ticket's time this clock session before this stint: the pill counts on from it. */
   priorSeconds?: number;
 }
@@ -61,7 +63,15 @@ export function withWorkingTimer(plugin: SuperChatRenderPlugin): SuperChatRender
         <span className="flex min-w-0">{link}</span>
         <TimePill
           runningSince={running ? timer.startTime - priorMs : null}
-          seconds={running ? 0 : Math.max(0, (timer.endTime! - timer.startTime + priorMs) / 1000)}
+          seconds={
+            running
+              ? 0
+              : Math.max(
+                  0,
+                  priorMs / 1000 +
+                    (timer.durationSeconds ?? (timer.endTime! - timer.startTime) / 1000),
+                )
+          }
           label={ticketTimerText.workingTimeLabel(title, running)}
         />
       </span>

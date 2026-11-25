@@ -365,10 +365,17 @@ async function attachSessions(posts) {
 
 /**
  * A timer session as a post shows it: when it started, when it stopped (null
- * while it runs), and the time its ticket already had this clock session.
+ * while it runs), its logged time once stopped (which a correction may have
+ * changed), and the time its ticket already had this clock session.
  */
 function toPostTimer(timer, prior = 0) {
-  return { startTime: timer.startTime, endTime: timer.endTime ?? null, priorSeconds: prior };
+  const endTime = timer.endTime ?? null;
+  return {
+    startTime: timer.startTime,
+    endTime,
+    durationSeconds: endTime === null ? null : (timer.durationSeconds ?? null),
+    priorSeconds: prior,
+  };
 }
 
 /**
@@ -417,7 +424,7 @@ async function attachTimers(posts) {
     .collection('timers')
     .find(
       { huddlePostId: { $in: ids } },
-      { projection: { huddlePostId: 1, userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1 } },
+      { projection: { huddlePostId: 1, userId: 1, clockEventId: 1, workItemId: 1, startTime: 1, endTime: 1, durationSeconds: 1 } },
     )
     .toArray();
   const byPost = new Map(timers.map((t) => [t.huddlePostId, t]));
@@ -531,6 +538,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
           $or: [
             { 'updateDescription.updatedFields.huddlePostId': { $exists: true } },
             { 'updateDescription.updatedFields.endTime': { $exists: true } },
+            { 'updateDescription.updatedFields.durationSeconds': { $exists: true } },
           ],
         },
       },
