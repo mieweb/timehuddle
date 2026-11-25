@@ -19,6 +19,7 @@ import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { clockApi, type SessionPlanItem } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import type { RunningTicket } from '../../lib/useRunningTicket';
 import { clockText } from './clockStrings';
 import type { SessionPlanState } from './useSessionPlan';
@@ -48,10 +49,15 @@ export function useRunningPlanTicketCheck(
   runningTicket: RunningTicket | null,
 ) {
   const { teamId, plan, setChecked } = sessionPlan;
+  const sessionId = useTeam().activeClockEvent?.id ?? null;
   const [asking, setAsking] = useState<TicketItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const resolveRef = useRef<((answer: RunningTicketAnswer) => void) | null>(null);
+  // The session the question is about. One ended or replaced meanwhile (on
+  // another device) closes it without clocking out: that clock-out would stop
+  // the new session.
+  const askedForRef = useRef<string | null>(null);
 
   const finish = useCallback((answer: RunningTicketAnswer) => {
     const resolve = resolveRef.current;
@@ -62,6 +68,9 @@ export function useRunningPlanTicketCheck(
 
   // A page left mid-question doesn't clock out.
   useEffect(() => () => resolveRef.current?.({ proceed: false }), []);
+  useEffect(() => {
+    if (asking && askedForRef.current !== sessionId) finish({ proceed: false });
+  }, [asking, sessionId, finish]);
 
   /** Ask about the running plan ticket, if there is one; resolves once answered and saved. */
   const confirmClockOut = useCallback(async (): Promise<RunningTicketAnswer> => {
@@ -71,12 +80,13 @@ export function useRunningPlanTicketCheck(
     const item = runningItemOf(current?.items ?? [], runningTicket);
     if (!item) return { proceed: true };
     resolveRef.current?.({ proceed: false });
+    askedForRef.current = sessionId;
     setFailed(false);
     setAsking(item);
     return new Promise((resolve) => {
       resolveRef.current = resolve;
     });
-  }, [teamId, plan, runningTicket]);
+  }, [teamId, plan, runningTicket, sessionId]);
 
   const answer = async (checked: boolean) => {
     const item = asking;

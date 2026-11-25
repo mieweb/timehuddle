@@ -5,11 +5,16 @@ import type { SessionPlan } from '../../lib/api';
 import { type RunningTicketAnswer, useRunningPlanTicketCheck } from './useRunningPlanTicketCheck';
 
 const getPlan = vi.fn();
+let activeClockEvent: { id: string } | null = { id: 'ev1' };
+vi.mock('../../lib/TeamContext', () => ({ useTeam: () => ({ activeClockEvent }) }));
 vi.mock('../../lib/api', () => ({
   clockApi: { getPlan: (...args: unknown[]) => getPlan(...args) },
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  activeClockEvent = { id: 'ev1' };
+});
 
 const planWith = (runningSince: number | null, checked = false): SessionPlan => ({
   clockEventId: 'ev1',
@@ -83,6 +88,16 @@ describe('clocking out with a plan ticket running (#887)', () => {
     fireEvent.click(screen.getByText('clock out'));
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(getPlan).toHaveBeenCalledWith('team1');
+  });
+
+  it('closes without clocking out when the session ends elsewhere meanwhile', async () => {
+    const onAnswer = vi.fn();
+    const view = render(<Harness plan={planWith(1)} setChecked={vi.fn()} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByText('clock out'));
+    await screen.findByRole('dialog');
+    activeClockEvent = { id: 'ev2' };
+    view.rerender(<Harness plan={planWith(1)} setChecked={vi.fn()} onAnswer={onAnswer} />);
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({ proceed: false }));
   });
 
   it('stays open and does not clock out when the check cannot be saved', async () => {
