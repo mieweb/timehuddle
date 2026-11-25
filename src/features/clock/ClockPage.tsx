@@ -85,6 +85,7 @@ import { RedminePushPanel } from './RedminePushPanel';
 import { TodayPlan } from './TodayPlan';
 import { useRecentSessions } from './useRecentSessions';
 import { useSessionPlan } from './useSessionPlan';
+import { createOwnLineKit } from './ownLineKit';
 import { usePlanTaskEditor } from './usePlanTaskEditor';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -213,10 +214,15 @@ export const ClockPage: React.FC = () => {
   // (postRefsIn).
   const personTrigger = usePersonTrigger(teamMentions);
   const ticketTrigger = useTicketTrigger(gateTeamId, gateTeam);
+  const triggers = useMemo(() => [personTrigger, ticketTrigger], [personTrigger, ticketTrigger]);
   // A `#` ticket goes on its own line, as the Ticket button puts it.
-  const triggers = useMemo(
-    () => [personTrigger, { ...ticketTrigger, ownLine: true }],
-    [personTrigger, ticketTrigger],
+  const [ownLineKit] = useState(() => createOwnLineKit(['ticket']));
+  const planKits = useMemo(() => [ownLineKit], [ownLineKit]);
+  // The wrap-up opens on today's plan: its checklist lines carry each ticket's
+  // timer, and ticks save at once.
+  const wrapUpKits = useMemo(
+    () => [...planEditor.editorKits, ownLineKit],
+    [planEditor.editorKits, ownLineKit],
   );
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
@@ -1145,9 +1151,7 @@ export const ClockPage: React.FC = () => {
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
                       triggers={triggers}
-                      // The wrap-up opens on today's plan: its checklist lines
-                      // carry each ticket's timer, and ticks save at once.
-                      editorKits={composerMode === 'wrapup' ? planEditor.editorKits : undefined}
+                      editorKits={composerMode === 'wrapup' ? wrapUpKits : planKits}
                     />
                   </Suspense>
                   {composerMode === 'wrapup' && (

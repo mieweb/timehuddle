@@ -163,6 +163,28 @@ test.describe('Huddle composer — individual actions', () => {
     expect(stored?.content.mentions).toEqual([memberId]);
   });
 
+  test('a ticket picked with # goes on its own line, and typing goes on below it', async ({
+    page,
+  }) => {
+    // One word: the `#` list matches up to the first space.
+    const title = `OwnLine${Date.now()}`;
+    await createTicket(page, title);
+    await openComposer(page);
+
+    await composerEditor(page).fill('Plan first');
+    await page.keyboard.type(` #${title}`, { delay: 10 });
+    await page.getByRole('option', { name: new RegExp(title) }).click();
+    await page.keyboard.type('after', { delay: 10 });
+
+    const lines = composerEditor(page).locator('p');
+    await expect(lines).toHaveCount(3);
+    await expect(lines.nth(0)).toHaveText('Plan first');
+    await expect(lines.nth(1).getByRole('link')).toContainText(title);
+    await expect(lines.nth(2)).toHaveText('after');
+
+    await deleteTicket(page, title);
+  });
+
   test('a removed attachment is left out of the post', async ({ page }) => {
     const postText = `Removed attachment ${Date.now()}`;
     await composerEditor(page).fill(postText);
