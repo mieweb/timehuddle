@@ -43,12 +43,20 @@ async function getLog(userId, limit = 50, before) {
   return { events, nextCursor };
 }
 
-// The log reads one user's (or one ticket's) activity, newest first.
+// The log reads one user's (or one ticket's) activity, newest first. A session
+// gets one clock.out entry however many times its clock-out is finished.
 Meteor.startup(async () => {
   try {
     const activities = rawDb().collection('activities');
     await activities.createIndex({ userId: 1, occurredAt: -1 });
     await activities.createIndex({ 'payload.ticketId': 1, occurredAt: -1 });
+    await activities.createIndex(
+      { type: 1, 'payload.clockEventId': 1 },
+      {
+        unique: true,
+        partialFilterExpression: { type: 'clock.out', 'payload.clockEventId': { $exists: true } },
+      }
+    );
   } catch (error) {
     console.error('[activity] failed to create indexes:', error);
   }

@@ -11,6 +11,7 @@ import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } fr
 const USER = { name: 'Auto Out User', email: 'wh-auto-out@test.dev', password: 'Password1!' };
 const TEAM = { name: 'WH Auto Out Team', code: 'WHAUTO97' };
 const PAST_8H_MS = 8 * 3600_000 + 60_000;
+const JOB_TIMEOUT = 120_000; // two Agenda runs, each up to a 30s poll
 
 let jwt: string;
 let userId: string;
@@ -80,6 +81,9 @@ describe('clock.out activity', () => {
       db
         .collection('agendajobs')
         .replaceOne(job, { ...jobDoc, nextRunAt: new Date(), lockedAt: null }, { upsert: true });
+    // A run removes its job last, after clearing autoClockoutPending.
+    const jobRemoved = (what: string) =>
+      waitFor(async () => !(await db.collection('agendajobs').findOne(job)), what);
     await runJobNow();
 
     const [activity, ...extra] = await waitForClockOut();
@@ -90,14 +94,15 @@ describe('clock.out activity', () => {
 
     // A retry finishing the same clock-out again adds no second entry.
     const event = { _id: new ObjectId(clockEventId) };
-    await waitFor(async () => !(await db.collection('clockevents').findOne(event))?.autoClockoutPending, 'the first run');
+    await jobRemoved('the first run');
     await db
       .collection('clockevents')
       .updateOne(event, { $set: { autoClockoutPending: true }, $unset: { closeLeaseUntil: '' } });
     await runJobNow();
-    await waitFor(async () => !(await db.collection('clockevents').findOne(event))?.autoClockoutPending, 'the retry');
+    await jobRemoved('the retry');
+    expect((await db.collection('clockevents').findOne(event))?.autoClockoutPending).toBeFalsy();
     expect(await waitForClockOut()).toHaveLength(1);
-  });
+  }, JOB_TIMEOUT);
 
   it('is not marked auto for a manual clock-out', async () => {
     const db = await getDb();
