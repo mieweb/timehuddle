@@ -144,6 +144,26 @@ describe("today's plan on the session", () => {
     expect(await updates()).toEqual([]);
   });
 
+  it('starts from the plan post, not an update posted to the session before it was read', async () => {
+    const db = await getDb();
+    const planPost = await db.collection('huddlePosts').findOne({ _id: new ObjectId(planPostId) });
+    // The update comes first in the session's posts.
+    await db.collection('huddlePosts').deleteOne({ _id: planPost!._id });
+    await db.collection('huddlePosts').insertOne({
+      ...planPost!,
+      _id: new ObjectId(),
+      content: { text: '- [ ] Just an update', mentions: [] },
+      sessionUpdate: true,
+    });
+    await db.collection('huddlePosts').insertOne(planPost!);
+
+    expect((await plan()).items.map((item) => item.title ?? item.text)).toEqual([
+      'TH-1: Alpha',
+      'TH-2: Bravo',
+      'Lunch',
+    ]);
+  });
+
   it('starts from the plan post when a timer gets there before any page does', async () => {
     await start(alpha);
     await start(bravo);
