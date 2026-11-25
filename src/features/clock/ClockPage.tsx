@@ -423,6 +423,18 @@ export const ClockPage: React.FC = () => {
     seededTokenRef.current = null;
     setPostedPlan(null);
   }, [isClockedIn, submittingMode, postedPlan]);
+  // Clocked in on the plan this page just posted, the plan becomes today's
+  // checklist in this same editor: each ticket a line with its timer (M4).
+  // The wrap-up opens on it. Only once the page reads clocked in: until then
+  // the draft must stay as posted, so the effect above can clear it.
+  useEffect(() => {
+    const handedOver = handedOverRef.current;
+    if (!isClockedIn || !postedPlan || !handedOver) return;
+    const checklist = planTicketsAsChecklist(handedOver.draft);
+    if (checklist === handedOver.draft) return;
+    handedOverRef.current = { draft: checklist, plan: handedOver.plan };
+    setText((current) => (current === handedOver.draft ? checklist : current));
+  }, [isClockedIn, postedPlan]);
   // A composer being submitted keeps its editor: once clock-out lands, the
   // lookup above resets for a session that has just ended.
   const editorMounted =
@@ -740,14 +752,9 @@ export const ClockPage: React.FC = () => {
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
-      const clockedIn = await clockIn({ planJustPosted: true, planPostId, at });
-      // Clocked in, the plan becomes today's checklist in this same editor:
-      // each ticket a line with its timer (M4). The wrap-up opens on it.
-      if (clockedIn) {
-        const checklist = planTicketsAsChecklist(draft);
-        handedOverRef.current = { draft: checklist, plan: trimmed };
-        setText(checklist);
-      }
+      // Once the page reads clocked in, the plan becomes today's checklist
+      // (the effect after `handedOverRef`).
+      await clockIn({ planJustPosted: true, planPostId, at });
       // The editor keeps showing the plan while it posts, and the wrap-up
       // that replaces it opens on that same draft. Marked as seeded so it
       // doesn't remount to load the posted copy of the same text.
