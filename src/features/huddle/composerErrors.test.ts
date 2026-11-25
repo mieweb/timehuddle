@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@lib/api', () => ({ ApiError: class extends Error {}, videoApi: {} }));
 
-import { composerRefusalMessage } from './composerErrors';
+import { composerRefusalMessage, isSendBusyMessage, SEND_BUSY } from './composerErrors';
 
 const caps = {
   limitOf: (f: File) => (f.type.startsWith('video/') ? '500 MB' : '100 MB'),
@@ -46,5 +46,15 @@ describe('composerRefusalMessage', () => {
       'A post takes up to 10 files.',
     );
     expect(composerRefusalMessage({ reason: 'send-failed' }, caps)).toBeNull();
+  });
+});
+
+describe('SEND_BUSY', () => {
+  it('says why a send waits, and tells its messages from other errors', () => {
+    expect(SEND_BUSY.ticket).toMatch(/tickets/);
+    expect(isSendBusyMessage(SEND_BUSY.conversation)).toBe(true);
+    expect(isSendBusyMessage(SEND_BUSY.ticket)).toBe(true);
+    expect(isSendBusyMessage('Could not reach the server.')).toBe(false);
+    expect(isSendBusyMessage(null)).toBe(false);
   });
 });

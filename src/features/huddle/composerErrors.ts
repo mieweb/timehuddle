@@ -38,6 +38,20 @@ export function composerErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Why Huddle refused a send while another post is on its way: one from this
+ * conversation, or one carrying a ticket this send would carry too (picked
+ * tickets are page-wide, so the same ticket would go out twice).
+ */
+export const SEND_BUSY = {
+  conversation: 'A post is already on its way. Send again in a moment.',
+  ticket: 'A post with these tickets is already on its way. Send again once it has posted.',
+} as const;
+
+/** Whether `message` is one of the {@link SEND_BUSY} refusals. */
+export const isSendBusyMessage = (message: string | null): boolean =>
+  Object.values(SEND_BUSY).some((busy) => busy === message);
+
 /** Why the composer refused a file, in words the writer can act on. */
 const REFUSALS = {
   heic: (name: string) =>

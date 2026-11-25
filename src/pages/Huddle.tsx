@@ -43,7 +43,12 @@ import { createPortal } from 'react-dom';
 import { discardMedia, uploadedMedia, toPostAttachment } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
+import {
+  composerErrorMessage,
+  composerRefusalMessage,
+  isSendBusyMessage,
+  SEND_BUSY,
+} from '../features/huddle/composerErrors';
 import {
   attachmentLimitLabel,
   attachmentSizeLimit,
@@ -363,10 +368,10 @@ export default function Huddle() {
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId),
   );
-  // A send is in flight. The ref is what guards re-entry; the state only
-  // drives the composer's busy send button.
-  const sendingRef = useRef(false);
-  const [sending, setSending] = useState(false);
+  // The conversations with a send in flight, each with the tickets it carries:
+  // guards re-entry in each, as SuperChat's busy Send does, and keeps a
+  // ticket from going out twice from two conversations (see handleMessageSent).
+  const sendingInRef = useRef(new Map<string, readonly string[]>());
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -1145,25 +1150,39 @@ export default function Huddle() {
     sendOption?: string,
   ) {
     // A Pulse video or ticket keeps the send button live with an empty box, so
-    // a second click during the upload would post the same thing again. The
-    // composer's own `isSending` covers this a render later; the ref covers
-    // the click that lands before that render. Refused out loud (a rejection),
-    // so SuperChat puts this draft and its files back rather than dropping them.
-    const alreadySending = () => new Error('A post is already on its way. Send again in a moment.');
-    if (sendingRef.current) throw alreadySending();
+    // a second click during the upload would post the same thing again.
+    // SuperChat shows this conversation's Send busy a render later; the ref
+    // covers the click that lands before that render. Refused out loud (a
+    // rejection), so SuperChat puts this draft and its files back rather than
+    // dropping them. Another conversation can post meanwhile, but not with
+    // tickets a post in flight carries: the picked tickets are page-wide.
+    const sendingIn = sendingInRef.current;
+    // Snapshot what's staged now: anything picked while this posts belongs to
+    // the *next* post, not this one.
+    const ticketIds = selectedTicketIds;
+    // Said here, not just thrown: SuperChat reports the rejection as
+    // 'send-failed', which handleComposerError leaves to this handler. Cleared
+    // when the post it waited on is done (see the `finally` below).
+    const refuseIfBusy = () => {
+      const busy = sendingIn.has(conversationId)
+        ? SEND_BUSY.conversation
+        : [...sendingIn.values()].some((sending) => sending.some((t) => ticketIds.includes(t)))
+          ? SEND_BUSY.ticket
+          : null;
+      if (!busy) return;
+      setInboxError(busy);
+      throw new Error(busy);
+    };
+    refuseIfBusy();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
-    if (sendingRef.current) throw alreadySending();
-    sendingRef.current = true;
-    setSending(true);
+    refuseIfBusy();
+    sendingIn.set(conversationId, ticketIds);
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
     // Stamped once: the post's Day thread, even if midnight passes while it sends.
     const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
-    // Snapshot what's staged now: anything picked while this posts belongs to
-    // the *next* post, not this one.
-    const ticketIds = selectedTicketIds;
     // The conversation open in the live URL, read again when the post lands
     // to tell whether the reader opened another one meanwhile.
     const openConversationParam = () =>
@@ -1171,11 +1190,12 @@ export default function Huddle() {
     const sentFromParam = openConversationParam();
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
-      if (ticketVideos.loading) {
-        throw new Error("The tickets' videos are still loading. Send again in a moment.");
-      }
-      if (ticketVideos.error) throw new Error(ticketVideos.error);
-      const staged = ticketVideos.videos;
+      // The picked tickets' videos, read now if they're still loading: Send
+      // isn't held busy for them.
+      if (!ticketVideos.loading && ticketVideos.error) throw new Error(ticketVideos.error);
+      const staged = ticketVideos.loading
+        ? await fetchTicketVideos(ticketIds)
+        : ticketVideos.videos;
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
@@ -1213,8 +1233,10 @@ export default function Huddle() {
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
     } finally {
-      sendingRef.current = false;
-      setSending(false);
+      sendingIn.delete(conversationId);
+      // A send refused while this one was on its way can go now: its message
+      // is stale. A failure of this post's own (set just above) stays.
+      setInboxError((current) => (isSendBusyMessage(current) ? null : current));
     }
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
@@ -1512,10 +1534,9 @@ export default function Huddle() {
                           uploadLabels: UPLOAD_TEXT,
                           // A ticket is a post on its own.
                           canSendWhenEmpty: selectedTicketIds.length > 0,
-                          // Also busy while staged content is still settling: a send
-                          // rejected then would lose the picked files, which the
-                          // composer clears before `onSend` (gap 4.14).
-                          isSending: sending || ticketVideos.loading,
+                          // SuperChat shows Send busy in the conversation whose post
+                          // is on its way; tickets' videos still loading at send are
+                          // read in handleSend.
                           mentionOptions: [
                             ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                             ...mentions.options,

@@ -237,7 +237,7 @@ Code in TimeHuddle that exists only because of a gap above. When the gap closes 
 | 3.19     | A post link opens the post's short Session thread, even with All saved, so the post is in view           | `threadBy` in `src/pages/Huddle.tsx`                                             |
 | 4.10     | Pulse videos kept in page state beside SuperChat's attachments and added to the post on send             | `pulseVideos` in `Huddle.tsx`                                                    |
 | 4.13     | `useTeamMentions().detect` re-resolves the sent text against the team roster                             | `src/features/huddle/useTeamMentions.ts`                                         |
-| 4.14     | Send held busy while `pulsePending` or ticket videos are loading                                         | `isSending` in `Huddle.tsx` composerProps                                        |
+| 4.14     | Ticket videos still loading at send are fetched then, not refused                                        | `fetchTicketVideos` in `handleMessageSent`, `Huddle.tsx`                         |
 
 ## Parent PR: SuperChat Host Extension Points
 
