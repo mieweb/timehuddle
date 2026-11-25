@@ -26,7 +26,7 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import { Binoculars, CheckCheck, Play, Plus, X } from 'lucide-react';
+import { Binoculars, CheckCheck, Pause, Play, Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -47,6 +47,7 @@ import { useSession } from '../../lib/useSession';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
+import { useClockBreak } from '../../lib/useClockBreak';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
@@ -167,6 +168,7 @@ export const TicketsPage: React.FC = () => {
     teams.find((t) => t.orgId === selectedOrgId)?.sourcePrefixes ??
     organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
+  const { isPaused, toggleBreak, clockPauseLoading } = useClockBreak();
   const toast = useToast();
 
   // Map from teamId → members for cross-team member lookups
@@ -970,18 +972,46 @@ export const TicketsPage: React.FC = () => {
   // Clocked out with pins, Start session (or the first pin's ▶) writes them
   // all into today's plan and starts the first once the user clocks in.
   // Mid-session pins join today's plan instead (addPinsToPlan).
-  const startSessionButton =
-    !activeClockEvent && sessionPins.length > 0 ? (
+  // During a session, Pinned's heading shows it's in progress instead, with a
+  // break button that does what the Clock page's and the header's do.
+  const sessionAction = activeClockEvent ? (
+    <ButtonGroup orientation="horizontal" className="gap-1">
       <Button
+        variant="outline"
+        size="icon-sm"
+        className="rounded-full"
+        onClick={() => void toggleBreak()}
+        isLoading={clockPauseLoading}
+        aria-label={isPaused ? boardText.resumeWork : boardText.startBreak}
+        title={isPaused ? boardText.resumeWork : boardText.startBreak}
+      >
+        {isPaused ? (
+          <Play className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <Pause className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </Button>
+      <Button
+        variant="secondary"
         size="sm"
         className="rounded-full"
-        leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
-        aria-label={boardText.startSessionLabel(sessionPins.length)}
-        onClick={beginSession}
+        aria-label={boardText.sessionLabel(isPaused)}
+        onClick={() => navigate('/app/clock')}
       >
-        {boardText.startSession}
+        {isPaused ? boardText.onBreak : boardText.inProgress}
       </Button>
-    ) : null;
+    </ButtonGroup>
+  ) : sessionPins.length > 0 ? (
+    <Button
+      size="sm"
+      className="rounded-full"
+      leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+      aria-label={boardText.startSessionLabel(sessionPins.length)}
+      onClick={beginSession}
+    >
+      {boardText.startSession}
+    </Button>
+  ) : null;
 
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
@@ -1231,7 +1261,7 @@ export const TicketsPage: React.FC = () => {
                 pinnedKeys={pinnedKeys}
                 onTogglePin={handleTogglePin}
                 onPinsReorder={handleReorderPins}
-                pinnedAction={startSessionButton}
+                pinnedAction={sessionAction}
                 loading={boardLoading}
                 hideBoardButton
                 // Unresolvable board entries, announced politely.

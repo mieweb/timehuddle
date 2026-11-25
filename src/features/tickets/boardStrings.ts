@@ -43,6 +43,13 @@ export const boardText = {
     count === 1
       ? 'Start session: plan your pinned ticket and start it once you clock in'
       : `Start session: plan your ${count} pinned tickets and start the first once you clock in`,
+  /** In Start session's place while clocked in; opens the Clock page. */
+  inProgress: 'In Progress',
+  onBreak: 'On break',
+  sessionLabel: (onBreak: boolean) =>
+    onBreak ? 'On break. Open the Clock page' : 'Session in progress. Open the Clock page',
+  startBreak: 'Start break',
+  resumeWork: 'Resume work',
   columnHeading: 'My Board and timer',
   /** A row's place in today's plan while clocked in (M4). */
   inTodaysPlan: "Today's plan",

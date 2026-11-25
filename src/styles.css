@@ -77,6 +77,11 @@ html[data-theme='dark'] {
 .kb-editor li.plan-task-item > .plan-task-time:empty {
   display: none;
 }
+/* Kerebron's unlayered `.kb-editor *` zeroes padding, which outranks the time
+   pill's layered Badge utilities: restate Badge `sm`'s, as on My Board. */
+.kb-editor .time-pill {
+  padding: 0.125rem 0.5rem;
+}
 
 /* Today's plan while clocked in is read-only: as tall as its checklist. */
 .markdown-editor.today-plan-editor .kb-editor {
