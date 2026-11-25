@@ -154,6 +154,35 @@ export async function removeBoardEntries(userId, refs) {
   return result.deletedCount;
 }
 
+/**
+ * Unpin these Huddle tickets on one user's board (M5 carry-over, #887): each
+ * ticket's own entry and the entry for the issue it's linked to, either of
+ * which pins it. They stay on the board, back with the rest; the pins left
+ * keep their order.
+ * @returns {Promise<number>} how many entries were unpinned
+ */
+export async function releasePins(userId, ticketIds) {
+  const ids = ticketIds.filter(isValidId);
+  if (!ids.length) return 0;
+  const tickets = await Tickets.find(
+    { _id: { $in: ids.map((id) => new Mongo.ObjectID(id)) } },
+    { fields: { linkedIssue: 1 } },
+  ).fetchAsync();
+  const refs = [
+    ...ids.map((ticketId) => ({ sourceId: HUDDLE, ticketId })),
+    ...tickets.flatMap(({ linkedIssue }) =>
+      linkedIssue?.source && linkedIssue?.id
+        ? [{ sourceId: linkedIssue.source, ticketId: String(linkedIssue.id) }]
+        : [],
+    ),
+  ];
+  const result = await MyBoard.rawCollection().updateMany(
+    { userId, pinOrder: { $type: 'number' }, $or: refs },
+    { $unset: { pinOrder: '' } },
+  );
+  return result.modifiedCount;
+}
+
 Meteor.methods({
   /**
    * List the caller's My Board entries (identity only, no display fields).

@@ -112,6 +112,8 @@ export interface TicketListProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  /** Folds the Open/Closed and filter bar away while the list is scrolled (phones). */
+  headerFolded?: boolean;
 }
 
 const ticketKey = (ticket: UnifiedTicket) => ticket.key;
@@ -156,6 +158,7 @@ export const TicketList: React.FC<TicketListProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  headerFolded,
 }) => {
   // Each mounted list needs its own switcher name: it ties the sliding highlight.
   const stateSwitcherName = `ticket-state-${React.useId()}`;
@@ -342,6 +345,7 @@ export const TicketList: React.FC<TicketListProps> = ({
         label={text.list(showClosed)}
         className="ticket-list"
         header={header}
+        headerFolded={headerFolded}
         items={tickets}
         getId={ticketKey}
         getTitle={ticketTitle}

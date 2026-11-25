@@ -36,6 +36,7 @@ type SharedListProps = Pick<
   | 'onEditRequest'
   | 'onDeleteRequest'
   | 'onChangeStatusRequest'
+  | 'headerFolded'
 >;
 
 export interface TicketListPanelProps extends SharedListProps {

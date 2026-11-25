@@ -6,12 +6,32 @@
 page and is posted once to Huddle; progress through the day shows as new Huddle
 posts, never as edits to the plan post.
 
-- [ ] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** ([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) — `ReorderableList` in `@mieweb/ui`, with touch drag
-- [ ] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** ([#884](https://github.com/mieweb/timehuddle/issues/884)) — ordered pins, one tap to start the day
-- [ ] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** ([#885](https://github.com/mieweb/timehuddle/issues/885)) — tickets become checklist items, pre-filled from pins
-- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** ([#886](https://github.com/mieweb/timehuddle/issues/886)) — Board and Clock page show live progress; Huddle gets new posts, never edits
-- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** ([#887](https://github.com/mieweb/timehuddle/issues/887)) — checked items unpin, unchecked stay pinned
+- [x] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** ([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) — `ReorderableList` in `@mieweb/ui`, with touch drag
+- [x] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** ([#884](https://github.com/mieweb/timehuddle/issues/884)) — ordered pins, one tap to start the day · shipped in #889
+- [x] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** ([#885](https://github.com/mieweb/timehuddle/issues/885)) — tickets become checklist items, pre-filled from pins · shipped in #888
+- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** ([#886](https://github.com/mieweb/timehuddle/issues/886)) — Board and Clock page show live progress; Huddle gets new posts, never edits · in review: #893
+- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** ([#887](https://github.com/mieweb/timehuddle/issues/887)) — checked items unpin, unchecked stay pinned · in review: #896
 - [ ] `Unassigned` **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
+
+### Acceptance Criteria (#880)
+
+Ticked once on `main`; the PR that delivers each is named.
+
+- [x] Pins persist across reloads and devices in the user's order, for Huddle,
+      Redmine and GitHub tickets (M2, #889)
+- [x] With pins set, one tap goes from the clocked-out board to a running first
+      ticket and a posted plan (M2, #889)
+- [x] Starting a ticket under "Require a plan" lands on a composer that already
+      contains it, and clock-in works without typing more (M3, #888)
+- [ ] Checking an item on the Clock page shows on the board and appends a Huddle
+      post, with the plan post unchanged (M4, in review: #893)
+- [ ] Clocking out updates the morning's plan post in place: its checklist shows
+      the final checks and the wrap-up follows it, with no new post at the bottom
+      of Huddle (M5, in review: #896)
+- [ ] After clock-out, only unchecked items remain pinned; a ticket still running
+      is asked about first (M5, in review: #896)
+- [ ] Older plan posts render unchanged, a wrap-up written onto one before M5
+      included (M5, in review: #896)
 
 **Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
 
@@ -34,6 +54,11 @@ said something else.
 - **Once posted, the plan is the source of truth.** People aren't expected to
   change it over and over. Edit it only when the plan changes radically and it's
   absolutely necessary.
+- **The one planned edit is the wrap-up.** Clocking out updates the plan post
+  in place: its checklist takes the day's final checks and the wrap-up follows
+  it, so the day reads as one post instead of a second one at the bottom of the
+  timeline. That's what the checklist is for. A Pulse wrap-up video is its own
+  post (M5).
 - **An edit must be communicated, not silent.** Teammates and managers should be
   able to see that the plan changed, when, and by whom — the edit is treated
   like a post in its own right. The original and effective dates, the edited
@@ -230,7 +255,7 @@ and forth between tickets all day.
   **We don't want that UI, and we don't edit the Huddle post to drop an item.**
   The plan is written before clocking in. **Once clocked in it isn't edited by
   hand:** the only change mid-session is a ticket pinned then joining it (M2),
-  and the wrap-up at clock-out is the next edit. Huddle's ⋯ → **Edit message**
+  and the wrap-up at clock-out updates the plan post in place (M5). Huddle's ⋯ → **Edit message**
   stays for radical rewrites only (see the
   [principle](#principle-the-huddle-timeline-is-append-only)).
 - **Pinning mid-session adds the ticket to today's plan** on the Board and Clock
@@ -295,26 +320,31 @@ needs a reorderable list. It's being built in `@mieweb/ui` as **`ReorderableList
 **touch drag**, keyboard and move-button moves, and announcements. TimeHuddle uses
 it in M2; there's no hand-rolled drag-and-drop here.
 
-- [ ] `ReorderableList` lands in `@mieweb/ui` and TimeHuddle's `vendor/ui` picks it up
-- [ ] Confirm it can move a row from Rest of my board into Pinned (two sections);
-      if not, raise it on mieweb/ui#782
-- [ ] Done when: pins reorder by drag on desktop and phone, and by keyboard /
+- [x] `ReorderableList` lands in `@mieweb/ui` (mieweb/ui#793) and TimeHuddle's
+      `vendor/ui` picks it up
+- [x] Confirm it can move a row from Rest of my board into Pinned: the two
+      sections are one list with each heading a fixed row (#889)
+- [x] Done when: pins reorder by drag on desktop and phone, and by keyboard /
       move buttons, with the new position announced
 
 ### M2 — Pinned Section and Start Session on My Board
 
 **Owner:** Shubh · **Issue:** [#884](https://github.com/mieweb/timehuddle/issues/884)
 
-- [ ] Model: an ordered per-user pin list next to My Board — ticket keys and
+Shipped in #889.
+
+- [x] Model: an ordered per-user pin list next to My Board — ticket keys and
       position only (Core Model Data Discipline); pin, unpin and reorder methods
-- [ ] UI: **Pinned (n)** above **Rest of my board (n)**, each a `Collapsible` with
-      a `CountBadge`, reusing `TicketList` / `TicketRow`, ordered with M1
-- [ ] **Start session** `Button` on the Pinned header: clock in with the pinned
+      (`pinOrder` on the My Board row; `myBoard.pin` / `unpin` / `setPins`)
+- [x] UI: **Pinned (n)** above **Rest of my board (n)**, each folding from its
+      heading, reusing `TicketList` / `TicketRow`, ordered with M1
+- [x] **Start session** `Button` on the Pinned header: clock in with the pinned
       plan (M3) and start the first unchecked ticket
-- [ ] While clocked in, pinning a ticket adds it to today's plan (M4)
-- [ ] Done when: pins persist across reloads and devices in the user's order, for
+- [ ] While clocked in, pinning a ticket adds it to today's plan (M4, in review:
+      #893)
+- [x] Done when: pins persist across reloads and devices in the user's order, for
       Huddle, Redmine and GitHub tickets alike
-- [ ] Done when: with pins set, one tap goes from a clocked-out board to a running
+- [x] Done when: with pins set, one tap goes from a clocked-out board to a running
       first ticket and a posted plan
 
 ### M3 — Tickets Inline in the Plan Composer
@@ -393,9 +423,9 @@ post is not edited to show progress.
 - [x] Every ticket a plan gets — a Start session pin, the **Ticket** button, a
       `#` pick in a checklist — is an unchecked checklist item
       (`- [ ] [TH-12: …](/app/tickets/…)`, `planTicketItem`)
-- [x] At clock-out the wrap-up is the next edit of the plan, in the same
-      editor: the wrap-up composer is that checklist, and it saves with the
-      session's checks (`withChecks`). How the wrap-up is posted: M5
+- [x] At clock-out the wrap-up starts from the plan, in the same editor: the
+      wrap-up composer is that checklist, and it saves with the session's checks
+      (`withChecks`). How the wrap-up is posted: M5
 - [x] The ticket task item that draws ▶/⏸ and the running time needs no
       upstream change: TimeHuddle passes its own task item to `RichEditor`
       through `editorKits` (`src/features/clock/planTaskKit.ts`)
@@ -442,16 +472,28 @@ post is not edited to show progress.
 
 **Owner:** Shubh · **Issue:** [#887](https://github.com/mieweb/timehuddle/issues/887)
 
-- [ ] On clock-out — with a plan or with Pulse — **checked** items unpin and return
-      to Rest of my board
-- [ ] **Unchecked** items (never started, or manually unchecked) stay pinned, in
+- [x] On clock-out — with a plan or with Pulse — **checked** items unpin and return
+      to Rest of my board. Both end the session through `clockStop`, which runs
+      the carry-over (`server/carry-over.js`); an automatic clock-out leaves the
+      pins alone
+- [x] **Unchecked** items (never started, or manually unchecked) stay pinned, in
       order, for the next session
-- [ ] Read the plan state from the session data (M4), not from the posted
-      message
-- [ ] Post the wrap-up as its own message instead of replacing the plan text (see
-      [Incidental Findings](#incidental-findings-on-main))
+- [x] Clocking out while a plan ticket is still running asks first: **Check it
+      off** (it leaves Pinned) or **Keep for next session** (it stays,
+      unchecked). The Clock out button, the wrap-up and Pulse all ask
+      (`useRunningPlanTicketCheck`); the server then follows the plan's checks
+- [x] Read the plan state from the session data (M4's `clockevents.planItems`),
+      not from the posted message. A session without it unpins nothing, so this
+      takes effect once M4 merges
+- [x] The wrap-up updates the plan post in place, not a new post at the bottom
+      of Huddle: today's checklist with its final checks (the running ticket's as
+      answered), plus what was written at clock-out. A Pulse wrap-up video is its
+      own post (`appendWrapUp`). Decided after trying the wrap-up as its own post:
+      see [Incidental Findings](#incidental-findings-on-main)
 - [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked
-      item pinned, for both clock-out paths
+      item pinned, for both clock-out paths. Covered for the wrap-up by
+      `tests/e2e/tickets/carry-over.spec.ts`; Pulse shares the server path
+      (`meteor-backend/tests/carry-over.test.ts`) but isn't driven in a browser yet
 
 ### M6 — Actionable Toasts (Issue Later)
 
@@ -490,8 +532,9 @@ is how ticket videos are meant to show, and the design should keep it.
 1. **What happens to a checked-off ticket's status** — closed, or moved to another
    status? The MVP leaves status alone
    ([touch and go](#scene-7--checking-off-touch-and-go)).
-2. Is the ticket that is still running at clock-out checked off, like a switch, or
-   left unchecked and pinned?
+2. ~~Is the ticket that is still running at clock-out checked off, like a switch,
+   or left unchecked and pinned?~~ **Resolved (M5):** clocking out asks — check it
+   off, or keep it unchecked and pinned for the next session.
 3. Is **"beat"** user-facing wording?
 
 ## Incidental Findings on `main`
@@ -500,9 +543,11 @@ is how ticket videos are meant to show, and the design should keep it.
   `http://localhost:4000/v1/seed/import/parse` (the retired Fastify API) and fails
   with "Failed to fetch".
 - **The wrap-up replaces the plan.** Clocking out with a wrap-up overwrites the
-  plan text in the session post ("(edited)", relabelled "Wrap-up"). This breaks
-  the [principle](#principle-the-huddle-timeline-is-append-only): readers lose
-  the plan they read in the morning. Fixed in M5.
+  plan text in the session post ("(edited)", relabelled "Wrap-up"). M5 first
+  posted the wrap-up as its own post instead, but that put the day's update at
+  the bottom of Huddle, apart from its plan. **Kept by decision:** the wrap-up
+  is the plan post's final state, its checklist showing what got done — the one
+  planned edit in the [principle](#principle-the-huddle-timeline-is-append-only).
 - **Wrap-up composer opens with the plan text.** After clocking in, "What did you
   work on?" already contains the plan.
 

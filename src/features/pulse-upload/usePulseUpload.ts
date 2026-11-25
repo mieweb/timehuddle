@@ -52,8 +52,12 @@ export interface PulseLink {
 
 export interface PulseUpload {
   destination: PulseDestination;
-  /** Hand out the link: a new one, or the live one this hook already has. */
-  start: () => Promise<void>;
+  /**
+   * Hand out the link: a new one, or the live one this hook already has.
+   * `afterTap`: called once the tap is over (a question answered first), so a
+   * phone opens the window's "Open Pulse" instead of leaving for Pulse itself.
+   */
+  start: (options?: { afterTap?: boolean }) => Promise<void>;
   /** Send a video file from this device through a new link instead of the Pulse app. */
   upload: (file: File) => Promise<void>;
   reserving: boolean;
@@ -322,31 +326,34 @@ export function usePulseUpload(
     [destinationKey, adopt],
   );
 
-  const start = useCallback(async () => {
-    // One link, one upload: while the last link is still waiting, open it
-    // again (a re-scan resumes it) rather than mint a second that could also land.
-    if (current && status?.state === 'waiting') {
-      setError(null);
-      await openLink(current, true);
-      return;
-    }
-    // A phone with a link ready: opened before anything is awaited, so still
-    // within the tap. The next video gets a fresh one.
-    const ready =
-      prepared?.key === preparedKey && Date.now() - prepared.at < PREPARED_FRESH_MS
-        ? prepared
-        : null;
-    if (ready) {
-      // Started after all: whatever went wrong before (a file too large) is over.
-      setError(null);
-      setPrepared(null);
-      setPrepareRound((n) => n + 1);
-      await openLink(adopt(ready.reservation, false), true);
-      return;
-    }
-    const next = await reserve(false);
-    if (next) await openLink(next, false);
-  }, [current, status?.state, prepared, preparedKey, adopt, reserve, openLink]);
+  const start = useCallback(
+    async ({ afterTap = false }: { afterTap?: boolean } = {}) => {
+      // One link, one upload: while the last link is still waiting, open it
+      // again (a re-scan resumes it) rather than mint a second that could also land.
+      if (current && status?.state === 'waiting') {
+        setError(null);
+        await openLink(current, !afterTap);
+        return;
+      }
+      // A phone with a link ready: opened before anything is awaited, so still
+      // within the tap. The next video gets a fresh one.
+      const ready =
+        prepared?.key === preparedKey && Date.now() - prepared.at < PREPARED_FRESH_MS
+          ? prepared
+          : null;
+      if (ready) {
+        // Started after all: whatever went wrong before (a file too large) is over.
+        setError(null);
+        setPrepared(null);
+        setPrepareRound((n) => n + 1);
+        await openLink(adopt(ready.reservation, false), !afterTap);
+        return;
+      }
+      const next = await reserve(false);
+      if (next) await openLink(next, false);
+    },
+    [current, status?.state, prepared, preparedKey, adopt, reserve, openLink],
+  );
 
   const upload = useCallback(
     async (file: File) => {
