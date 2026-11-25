@@ -18,7 +18,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { requireIdentity } from './auth-bridge';
 import { isValidId, rawDb } from './collections';
-import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
+import { SESSION_POST_FILTER, SESSION_POST_SORT } from './clock-core';
 import { requireTeamMembership } from './permissions';
 import { normalizeSource } from './ticket-refs';
 import {
