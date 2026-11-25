@@ -40,7 +40,7 @@ import {
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
 import { endSnoozeUntilClockIn } from './notification-prefs';
-import { emitActivity, ActivityType } from './activity-core';
+import { emitActivity, emitClockOutActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
 import {
   scheduleClockJobs,
@@ -1065,16 +1065,12 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
       },
     }).catch(() => {});
 
-    void emitActivity({
+    void emitClockOutActivity({
       userId,
       teamId,
-      type: ActivityType.ClockOut,
-      actor: { id: userId, name: userName },
-      payload: {
-        teamId,
-        teamName: team.name,
-        durationSeconds: pub.accumulatedTime ?? undefined,
-      },
+      teamName: team.name,
+      userName,
+      durationSeconds: pub.accumulatedTime ?? undefined,
     });
   }
 

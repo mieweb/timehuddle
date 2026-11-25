@@ -30,3 +30,14 @@ export async function emitActivity(input) {
     console.error('[activity] emitActivity failed:', err);
   }
 }
+
+/** Record a clock-out in the feed; `auto` marks one made by the 8-hour job. */
+export function emitClockOutActivity({ userId, teamId, teamName, userName, durationSeconds, auto }) {
+  return emitActivity({
+    userId,
+    teamId,
+    type: ActivityType.ClockOut,
+    actor: { id: userId, name: userName },
+    payload: { teamId, teamName, durationSeconds, ...(auto && { auto: true }) },
+  });
+}

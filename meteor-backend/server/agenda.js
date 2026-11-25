@@ -16,9 +16,10 @@
 import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
 import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
-import { ClockEvents, rawDb, isValidId } from './collections';
+import { ClockEvents, Teams, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
-import { createNotification } from './notify-core';
+import { createNotification, userDisplayName } from './notify-core';
+import { emitClockOutActivity } from './activity-core';
 import {
   deliverScheduledPost,
   isPostStillAwaitingDelivery,
@@ -52,6 +53,21 @@ export function getAgenda() {
 async function findOpenEvent(clockEventId) {
   if (!isValidId(clockEventId)) return null;
   return ClockEvents.findOneAsync({ _id: new ObjectId(clockEventId), endTime: null });
+}
+
+/** Close the session at 8h and record it in the user's activity feed (#897). */
+async function autoClockOut(userId, teamId, now) {
+  const closed = await stopActiveClock(userId, teamId, now);
+  const team = closed && (await Teams.findOneAsync(new ObjectId(teamId)));
+  if (!team) return;
+  void emitClockOutActivity({
+    userId,
+    teamId,
+    teamName: team.name,
+    userName: await userDisplayName(userId),
+    durationSeconds: closed.accumulatedTime,
+    auto: true,
+  });
 }
 
 /**
@@ -164,7 +180,7 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await autoClockOut(userId, teamId, now);
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
@@ -186,7 +202,7 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await autoClockOut(userId, teamId, now);
 
     // Rewrite the existing shift-end-reminder notification in-place to describe
     // the auto-clock-out outcome (keeps exactly one inbox entry).
