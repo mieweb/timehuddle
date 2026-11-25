@@ -363,6 +363,9 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** How long a timer change waits for its post to be published to a feed. */
+const PENDING_TIMER_MS = 30_000;
+
 /**
  * A timer session as a post shows it: when it started, when it stopped (null
  * while it runs), its logged time once stopped (which a correction may have
@@ -585,6 +588,10 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   // Track which ids this subscription has sent, so a draft being published
   // (an update) is delivered as `added` rather than a no-op `changed`.
   const sentIds = new Set();
+  // A timer change for a post still being published: applied once it's sent.
+  const pendingTimers = new Map();
+  /** A stopped timer is never undone by an open snapshot of the same stint. */
+  const isNewer = (next, prev) => !prev || next.endTime !== null || prev.endTime === null;
   await attachEnrichment(posts);
   for (const post of posts) {
     const enriched = await enrichPost(post);
@@ -626,6 +633,9 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
           // Covers both fresh inserts and drafts being published.
           sentIds.add(docId);
           self.added('huddlePosts', enriched.id, enriched);
+          const timer = pendingTimers.get(docId);
+          pendingTimers.delete(docId);
+          if (timer && isNewer(timer, enriched.timer)) self.changed('huddlePosts', docId, { timer });
         }
       } else if (change.operationType === 'delete') {
         const deletedId = change.documentKey._id.toHexString();
@@ -643,9 +653,17 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
     try {
       const timer = change.fullDocument;
       const postId = timer?.huddlePostId;
-      if (!postId || !sentIds.has(postId)) return;
+      if (!postId) return;
       const prior = await priorTimes([timer]);
-      self.changed('huddlePosts', postId, { timer: toPostTimer(timer, prior.get(String(timer._id))) });
+      const postTimer = toPostTimer(timer, prior.get(String(timer._id)));
+      if (sentIds.has(postId)) self.changed('huddlePosts', postId, { timer: postTimer });
+      else if (isNewer(postTimer, pendingTimers.get(postId))) {
+        // The stream sees every team's timers: hold one only while its post could still arrive.
+        pendingTimers.set(postId, postTimer);
+        Meteor.setTimeout(() => {
+          if (pendingTimers.get(postId) === postTimer) pendingTimers.delete(postId);
+        }, PENDING_TIMER_MS);
+      }
     } catch (err) {
       console.error('[huddle] timer change stream error:', err);
     }
