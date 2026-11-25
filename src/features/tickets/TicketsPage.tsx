@@ -11,6 +11,7 @@
 import {
   Button,
   ButtonGroup,
+  cn,
   Alert,
   AlertDescription,
   Input,
@@ -26,7 +27,7 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import { Binoculars, CheckCheck, Pause, Play, Plus, X } from 'lucide-react';
+import { Binoculars, CheckCheck, Play, Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -47,7 +48,6 @@ import { useSession } from '../../lib/useSession';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
-import { useClockBreak } from '../../lib/useClockBreak';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
@@ -168,7 +168,6 @@ export const TicketsPage: React.FC = () => {
     teams.find((t) => t.orgId === selectedOrgId)?.sourcePrefixes ??
     organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
-  const { isPaused, toggleBreak, clockPauseLoading } = useClockBreak();
   const toast = useToast();
 
   // Map from teamId → members for cross-team member lookups
@@ -972,35 +971,30 @@ export const TicketsPage: React.FC = () => {
   // Clocked out with pins, Start session (or the first pin's ▶) writes them
   // all into today's plan and starts the first once the user clocks in.
   // Mid-session pins join today's plan instead (addPinsToPlan).
-  // During a session, Pinned's heading shows it's in progress instead, with a
-  // break button that does what the Clock page's and the header's do.
+  // During a session, Pinned's heading shows it's in progress instead: a
+  // slow green pulse while you work, still while on a break.
+  const isPaused = !!activeClockEvent?.isPaused;
   const sessionAction = activeClockEvent ? (
-    <ButtonGroup orientation="horizontal" className="gap-1">
-      <Button
-        variant="outline"
-        size="icon-sm"
-        className="rounded-full"
-        onClick={() => void toggleBreak()}
-        isLoading={clockPauseLoading}
-        aria-label={isPaused ? boardText.resumeWork : boardText.startBreak}
-        title={isPaused ? boardText.resumeWork : boardText.startBreak}
-      >
-        {isPaused ? (
-          <Play className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        className="rounded-full"
-        aria-label={boardText.sessionLabel(isPaused)}
-        onClick={() => navigate('/app/clock')}
-      >
-        {isPaused ? boardText.onBreak : boardText.inProgress}
-      </Button>
-    </ButtonGroup>
+    <Button
+      variant="secondary"
+      size="sm"
+      className="rounded-full"
+      leftIcon={
+        <span
+          aria-hidden="true"
+          className={cn(
+            'session-dot h-2 w-2 shrink-0 rounded-full',
+            isPaused
+              ? 'bg-muted-foreground'
+              : 'bg-success animate-[pulse_2.5s_ease-in-out_infinite] motion-reduce:animate-none',
+          )}
+        />
+      }
+      aria-label={boardText.sessionLabel(isPaused)}
+      onClick={() => navigate('/app/clock')}
+    >
+      {isPaused ? boardText.onBreak : boardText.inProgress}
+    </Button>
   ) : sessionPins.length > 0 ? (
     <Button
       size="sm"

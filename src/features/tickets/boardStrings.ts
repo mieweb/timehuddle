@@ -48,8 +48,6 @@ export const boardText = {
   onBreak: 'On break',
   sessionLabel: (onBreak: boolean) =>
     onBreak ? 'On break. Open the Clock page' : 'Session in progress. Open the Clock page',
-  startBreak: 'Start break',
-  resumeWork: 'Resume work',
   columnHeading: 'My Board and timer',
   /** A row's place in today's plan while clocked in (M4). */
   inTodaysPlan: "Today's plan",
