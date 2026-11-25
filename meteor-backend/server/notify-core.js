@@ -21,6 +21,7 @@ import {
 import { getPrefs } from './notification-prefs';
 import { resolveSettings } from './settings';
 import { isViewingTeam } from './presence';
+import { emitClockOutActivity } from './activity-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -166,7 +167,8 @@ async function createClockOutNoticeOnce(notice) {
  * member clocked out. Links to the session's Huddle post when it has one,
  * else the member's Work tab. An `auto` clock-out skips the member's own
  * notice: the 8h job sends its own. Each notice carries the session's
- * `clockEventId` and goes out once. Returns the member's display name.
+ * `clockEventId` and goes out once, as does the member's activity-feed entry.
+ * Returns the member's display name.
  */
 export async function notifyClockOut({
   userId,
@@ -224,6 +226,16 @@ export async function notifyClockOut({
       },
     }).catch(() => {});
   }
+
+  await emitClockOutActivity({
+    userId,
+    userName,
+    teamId,
+    teamName: team.name,
+    clockEventId,
+    durationSeconds: accumulatedTime ?? undefined,
+    auto,
+  });
   return userName;
 }
 
