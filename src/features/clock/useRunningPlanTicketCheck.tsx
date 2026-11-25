@@ -18,7 +18,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { SessionPlanItem } from '../../lib/api';
+import { clockApi, type SessionPlanItem } from '../../lib/api';
 import type { RunningTicket } from '../../lib/useRunningTicket';
 import { clockText } from './clockStrings';
 import type { SessionPlanState } from './useSessionPlan';
@@ -44,10 +44,10 @@ function runningItemOf(
 }
 
 export function useRunningPlanTicketCheck(
-  sessionPlan: Pick<SessionPlanState, 'plan' | 'setChecked'>,
+  sessionPlan: Pick<SessionPlanState, 'teamId' | 'plan' | 'setChecked'>,
   runningTicket: RunningTicket | null,
 ) {
-  const { plan, setChecked } = sessionPlan;
+  const { teamId, plan, setChecked } = sessionPlan;
   const [asking, setAsking] = useState<TicketItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -64,31 +64,34 @@ export function useRunningPlanTicketCheck(
   useEffect(() => () => resolveRef.current?.({ proceed: false }), []);
 
   /** Ask about the running plan ticket, if there is one; resolves once answered and saved. */
-  const confirmClockOut = useCallback((): Promise<RunningTicketAnswer> => {
-    const item = runningItemOf(plan?.items ?? [], runningTicket);
-    if (!item) return Promise.resolve({ proceed: true });
+  const confirmClockOut = useCallback(async (): Promise<RunningTicketAnswer> => {
+    // Not read yet (or the first read failed): read it now, so an early
+    // clock-out still asks.
+    const current = plan ?? (teamId ? await clockApi.getPlan(teamId).catch(() => null) : null);
+    const item = runningItemOf(current?.items ?? [], runningTicket);
+    if (!item) return { proceed: true };
     resolveRef.current?.({ proceed: false });
     setFailed(false);
     setAsking(item);
     return new Promise((resolve) => {
       resolveRef.current = resolve;
     });
-  }, [plan, runningTicket]);
+  }, [teamId, plan, runningTicket]);
 
   const answer = async (checked: boolean) => {
     const item = asking;
     if (!item) return;
-    if (item.checked !== checked) {
-      setSaving(true);
-      setFailed(false);
-      try {
-        await setChecked(item.id, checked);
-      } catch {
-        setFailed(true);
-        return;
-      } finally {
-        setSaving(false);
-      }
+    // Saved even when it looks unchanged: the check read when asking may be
+    // stale, and the server says nothing for a check that didn't change.
+    setSaving(true);
+    setFailed(false);
+    try {
+      await setChecked(item.id, checked);
+    } catch {
+      setFailed(true);
+      return;
+    } finally {
+      setSaving(false);
     }
     finish({ proceed: true, ticket: { ticketId: item.ticketId, checked } });
   };

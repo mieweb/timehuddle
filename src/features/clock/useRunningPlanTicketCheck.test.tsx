@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPlan } from '../../lib/api';
 import { type RunningTicketAnswer, useRunningPlanTicketCheck } from './useRunningPlanTicketCheck';
 
+const getPlan = vi.fn();
+vi.mock('../../lib/api', () => ({
+  clockApi: { getPlan: (...args: unknown[]) => getPlan(...args) },
+}));
+
 afterEach(cleanup);
 
 const planWith = (runningSince: number | null, checked = false): SessionPlan => ({
@@ -17,11 +22,14 @@ function Harness({
   setChecked,
   onAnswer,
 }: {
-  plan: SessionPlan;
+  plan: SessionPlan | null;
   setChecked: (itemId: string, checked: boolean) => Promise<void>;
   onAnswer: (answer: RunningTicketAnswer) => void;
 }) {
-  const { confirmClockOut, prompt } = useRunningPlanTicketCheck({ plan, setChecked }, null);
+  const { confirmClockOut, prompt } = useRunningPlanTicketCheck(
+    { teamId: 'team1', plan, setChecked },
+    null,
+  );
   return (
     <>
       <button onClick={() => void confirmClockOut().then(onAnswer)}>clock out</button>
@@ -67,6 +75,14 @@ describe('clocking out with a plan ticket running (#887)', () => {
       }),
     );
     expect(setChecked).toHaveBeenCalledWith('a', false);
+  });
+
+  it('still asks when clocking out before the plan has been read', async () => {
+    getPlan.mockResolvedValueOnce(planWith(1));
+    render(<Harness plan={null} setChecked={vi.fn()} onAnswer={vi.fn()} />);
+    fireEvent.click(screen.getByText('clock out'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(getPlan).toHaveBeenCalledWith('team1');
   });
 
   it('stays open and does not clock out when the check cannot be saved', async () => {

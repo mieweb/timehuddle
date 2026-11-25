@@ -145,6 +145,9 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
 const viewPanelClass = (showing: boolean) =>
   `tickets-view-panel min-h-0 flex-1 flex-col gap-3 ${showing ? 'flex' : 'hidden'}`;
 
+/** How long after a session ends its pins are read again, once the server has unpinned. */
+const PINS_SETTLE_MS = 3000;
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -418,11 +421,17 @@ export const TicketsPage: React.FC = () => {
   } = useMyBoardKeys(userId);
   // Clocking out unpins what the plan checked off (M5, #887), wherever it
   // happened — the Clock page, or Pulse on the server — so read the pins again.
+  // The session's end is published just before the server unpins, so once
+  // more a moment later.
   const clockEventId = activeClockEvent?.id ?? null;
   const lastClockEventId = useRef(clockEventId);
   useEffect(() => {
-    if (lastClockEventId.current && !clockEventId) loadBoard();
+    const ended = lastClockEventId.current && !clockEventId;
     lastClockEventId.current = clockEventId;
+    if (!ended) return;
+    loadBoard();
+    const again = window.setTimeout(loadBoard, PINS_SETTLE_MS);
+    return () => window.clearTimeout(again);
   }, [clockEventId, loadBoard]);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.

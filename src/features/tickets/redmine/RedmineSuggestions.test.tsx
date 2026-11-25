@@ -76,6 +76,8 @@ describe('ticket search in the app', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+    // Focus goes back to the bar the search was opened from.
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Search tickets/ }));
     expect(
       (screen.getByRole('textbox', { name: /Search tickets/ }) as HTMLInputElement).value,
     ).toBe('');

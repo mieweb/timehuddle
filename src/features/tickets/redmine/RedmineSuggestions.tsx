@@ -35,7 +35,15 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions } from 'downshift';
-import React, { useCallback, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { createPortal, flushSync } from 'react-dom';
 
 import {
@@ -193,6 +201,17 @@ export function RedmineSuggestions({
   const [fullScreen] = useState(isNativeApp);
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetInputRef = useRef<HTMLInputElement | null>(null);
+  const sheetOpenerRef = useRef<HTMLInputElement | null>(null);
+  // A modal search: the page under it is out of reach (Tab included) while it's
+  // open. A layout effect, so Cancel finds the page reachable to refocus.
+  useLayoutEffect(() => {
+    const page = document.getElementById('root');
+    if (!fullScreen || !sheetOpen || !page) return;
+    page.inert = true;
+    return () => {
+      page.inert = false;
+    };
+  }, [fullScreen, sheetOpen]);
   const viewport = useVisibleViewport(fullScreen && sheetOpen);
   // The row whose timer start or stop is in flight, by `rowKey`. The ref is the
   // guard (a double-click lands before the state does); the state drives the
@@ -494,9 +513,13 @@ export function RedmineSuggestions({
     sheetInputRef.current?.focus();
   };
   const cancelSheet = () => {
-    setSheetOpen(false);
-    setShowAll(false);
-    onQueryChange('');
+    flushSync(() => {
+      setSheetOpen(false);
+      setShowAll(false);
+      onQueryChange('');
+    });
+    // Back where it was opened from, once the page is reachable again.
+    sheetOpenerRef.current?.focus();
   };
   // Dragging the results puts the keyboard away, as a phone's own search does.
   const blurSheetInput = () => {
@@ -808,6 +831,7 @@ export function RedmineSuggestions({
         <Input
           label={text.searchLabel}
           hideLabel
+          ref={sheetOpenerRef}
           readOnly
           placeholder={text.placeholder}
           size="sm"
