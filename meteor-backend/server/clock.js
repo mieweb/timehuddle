@@ -1071,25 +1071,13 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
 
     if (team) {
       await stillOwned();
-      const userName = await notifyClockOut({
+      await notifyClockOut({
         userId,
         teamId,
         clockEventId: eventId,
         team,
         accumulatedTime: pub.accumulatedTime,
         sessionPost,
-      });
-
-      void emitActivity({
-        userId,
-        teamId,
-        type: ActivityType.ClockOut,
-        actor: { id: userId, name: userName },
-        payload: {
-          teamId,
-          teamName: team.name,
-          durationSeconds: pub.accumulatedTime ?? undefined,
-        },
       });
     }
 

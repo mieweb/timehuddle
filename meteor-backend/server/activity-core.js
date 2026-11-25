@@ -30,3 +30,29 @@ export async function emitActivity(input) {
     console.error('[activity] emitActivity failed:', err);
   }
 }
+
+/**
+ * Record a session's clock-out in the feed, once per `clockEventId` (a clock-out
+ * left half done is finished again). `auto` marks one made by the 8-hour job.
+ */
+export async function emitClockOutActivity({
+  userId,
+  userName,
+  teamId,
+  teamName,
+  clockEventId,
+  durationSeconds,
+  auto,
+}) {
+  const recorded = await rawDb()
+    .collection('activities')
+    .findOne({ type: ActivityType.ClockOut, 'payload.clockEventId': clockEventId });
+  if (recorded) return;
+  await emitActivity({
+    userId,
+    teamId,
+    type: ActivityType.ClockOut,
+    actor: { id: userId, name: userName },
+    payload: { teamId, teamName, clockEventId, durationSeconds, ...(auto && { auto: true }) },
+  });
+}
