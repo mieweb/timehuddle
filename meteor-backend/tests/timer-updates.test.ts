@@ -180,11 +180,23 @@ describe('timer updates in Huddle', () => {
     };
 
     const switchedFrom = await timerOf(first.result.update!.postId);
-    expect(switchedFrom).toMatchObject({ startTime: expect.any(Number), endTime: expect.any(Number) });
+    expect(switchedFrom).toMatchObject({
+      startTime: expect.any(Number),
+      endTime: expect.any(Number),
+      durationSeconds: expect.any(Number),
+    });
     expect(await timerOf(second.result.update!.postId)).toMatchObject({
       startTime: expect.any(Number),
       endTime: null,
+      durationSeconds: null,
     });
+
+    // A corrected stint reads as its logged time.
+    const db = await getDb();
+    await db
+      .collection('timers')
+      .updateOne({ _id: new ObjectId(first.result.session.id) }, { $set: { durationSeconds: 900 } });
+    expect(await timerOf(first.result.update!.postId)).toMatchObject({ durationSeconds: 900 });
   });
 
   it('posts "Stopped" when the timer is stopped', async () => {

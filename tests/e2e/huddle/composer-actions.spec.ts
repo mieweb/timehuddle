@@ -96,9 +96,19 @@ test.describe('Huddle composer — individual actions', () => {
     await composerEditor(page).fill(planText);
     await page.route('**/api/clock_activeForUser*', (route) => route.abort());
     await postButton(page).click();
-    // The button is briefly disabled while posting too, so check the text first.
-    await expect(composerEditor(page)).not.toContainText(planText, { timeout: 30000 });
-    await expect(postButton(page)).toBeDisabled();
+    // The live clock feed may still tell the page it's clocked in, so it moves
+    // on to the wrap-up; otherwise the plan composer must be left empty. The
+    // button is briefly disabled while posting too, so check the text first.
+    await expect(async () => {
+      if (await postButton(page).count()) {
+        await expect(composerEditor(page)).not.toContainText(planText, { timeout: 1000 });
+        await expect(postButton(page)).toBeDisabled({ timeout: 1000 });
+      } else {
+        await expect(page.getByRole('heading', { name: 'What did you work on?' })).toBeVisible({
+          timeout: 1000,
+        });
+      }
+    }).toPass({ timeout: 30000 });
 
     await page.unroute('**/api/clock_activeForUser*');
     await page.reload();

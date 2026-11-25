@@ -159,13 +159,12 @@ describe("today's plan on the session", () => {
     const running = (await plan()).items.filter((item) => item.runningSince);
     expect(running.map((item) => item.ticketId)).toEqual([alpha]);
 
-    const posts = await updates();
-    expect(posts).toHaveLength(3);
-    // Each switch is its own "Working on": the check-off it made isn't posted
-    // on its own, the ticket's earlier update shows its time, stopped.
-    expect(posts).toEqual([
+    // Each switch is its own "Working on", after the check-off it made.
+    expect(await updates()).toEqual([
       `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
+      `*Checked off [TH-1: Alpha](/app/tickets/${alpha}) at 0m*`,
       `*Working on [TH-2: Bravo](/app/tickets/${bravo})*`,
+      `*Checked off [TH-2: Bravo](/app/tickets/${bravo}) at 0m*`,
       `*Working on [TH-1: Alpha](/app/tickets/${alpha})*`,
     ]);
 
@@ -309,7 +308,7 @@ describe("today's plan on the session", () => {
     }
   });
 
-  it('keeps a check-off in Huddle when the switch that named it is discarded', async () => {
+  it('keeps a check-off in Huddle when the switch after it is discarded', async () => {
     await start(alpha);
     await start(bravo);
     const running = await wormhole<{ session: { id: string } }>('timers.getRunning', {}, jwt);
