@@ -218,6 +218,7 @@ describe('org settings', () => {
     expect(orgSettingForType('clock-in')).toBe('notifyAdminsOnClock');
     expect(orgSettingForType('clock-session-changed')).toBe('notifyAdminsOnClock');
     expect(orgSettingForType('shift-end-reminder')).toBe('shiftEndReminders');
+    expect(orgSettingForType('auto-clock-out')).toBeNull();
     expect(orgSettingForType('ticket-assigned')).toBeNull();
     expect(orgSettingForType('test')).toBeNull();
   });
@@ -242,6 +243,21 @@ describe('actionable events', () => {
   it('keeps the shift-end reminder in the inbox with both pop-ups off', () => {
     const p = prefs({ shiftEnd: { desktop: false, phone: false } });
     expect(resolveDelivery(p, { type: 'shift-end-reminder' })).toEqual({
+      inbox: true,
+      desktop: false,
+      phone: false,
+    });
+  });
+
+  it('treats the auto clock-out notice as part of the shift-end event', () => {
+    const p = prefs({ shiftEnd: { desktop: true, phone: false } });
+    expect(resolveDelivery(p, { type: 'auto-clock-out' })).toEqual({
+      inbox: true,
+      desktop: true,
+      phone: false,
+    });
+    const off = prefs({ shiftEnd: { desktop: false, phone: false } });
+    expect(resolveDelivery(off, { type: 'auto-clock-out' })).toEqual({
       inbox: true,
       desktop: false,
       phone: false,

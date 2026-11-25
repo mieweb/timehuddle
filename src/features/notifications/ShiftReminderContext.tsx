@@ -12,10 +12,14 @@
  *     job will have auto-clocked them out, so no modal is shown in that case.
  *
  * Architecture:
- * - "Continue Working" is a pure UI action — no API call needed.
- * - "Agree to Clock Out" calls POST /v1/clock/events/:id/agree-clockout which
- *   sets a flag on the clock event; the clock-monitor job fires the clockout at 8h.
- * - After any response the persisted notification is marked as read so it
+ * - "Continue Working" calls `clock.respondShiftReminder` with 'disagree', which
+ *   records the answer, cancels the 8h auto clock-out and deletes the reminder.
+ * - "Agree to Clock Out" calls `clock.agreeAutoClockout`, which flags the clock
+ *   event; the `shift-auto-clockout` job clocks the user out at 8h.
+ * - Closing the modal without answering leaves the 8h auto clock-out in place.
+ * - The modal also closes by itself when its clock session ends (e.g. the 8h
+ *   auto clock-out fires while it is open).
+ * - After agreeing, the persisted notification is marked as read so it
  *   doesn't reappear on the next session.
  */
 import {
@@ -30,7 +34,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { ApiError, notificationApi, type Notification } from '../../lib/api';
+import { ApiError, clockApi, notificationApi, type Notification } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
@@ -59,7 +63,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
   const { user } = useSession();
   const { activeClockEvent, clockReady } = useTeam();
   const [pendingNotif, setPendingNotif] = useState<Notification | null>(null);
-  const [respondLoading, setRespondLoading] = useState(false);
+  const [respondingTo, setRespondingTo] = useState<'agree' | 'disagree' | null>(null);
   const [respondError, setRespondError] = useState<string | null>(null);
 
   // Deduplicate by clockEventId so the same reminder isn't shown twice in a
@@ -161,55 +165,76 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     setRespondError(null);
   }, []);
 
+  // The reminder is moot once its session ends (e.g. the 8h auto clock-out
+  // fires while the modal is open), so dismiss it instead of leaving it up.
+  // The shared clock state also reads as "no session" when a refresh fails, and
+  // holds only one session when the user has open ones in two teams, so the
+  // server is asked about the reminder's own team before the modal is dismissed.
+  const pendingClockEventId = pendingNotif?.data?.clockEventId as string | undefined;
+  const pendingTeamId = pendingNotif?.data?.teamId as string | undefined;
+  useEffect(() => {
+    if (!pendingClockEventId || !clockReady || activeClockEvent?.id === pendingClockEventId) return;
+    let cancelled = false;
+    const sessionInTeam = pendingTeamId
+      ? clockApi.getStatus(pendingTeamId).then((status) => status?.event ?? null)
+      : clockApi.getActive();
+    sessionInTeam
+      .then((active) => {
+        if (!cancelled && active?.id !== pendingClockEventId) closeModal();
+      })
+      .catch(() => {
+        /* can't tell — leave the reminder up */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingClockEventId, pendingTeamId, activeClockEvent?.id, clockReady, closeModal]);
+
+  // The server has deleted this reminder; the inbox list drops it too.
+  const dropReminderFromInbox = useCallback((id: string) => {
+    window.dispatchEvent(new CustomEvent('timehuddle:shiftReminderHandled', { detail: { id } }));
+  }, []);
+
   const handleAction = useCallback(
     async (action: 'agree' | 'disagree') => {
       if (!pendingNotif) return;
 
-      // Helper: mark the persisted notification as read if it has a real DB id.
-      // SSE-only notifications use a synthetic `shift-reminder-*` id — skip those.
-      const markRead = () => {
-        if (pendingNotif.id && !pendingNotif.id.startsWith('shift-reminder-')) {
-          notificationApi.markOneRead(pendingNotif.id).catch(() => {});
-        }
-      };
-
-      if (action === 'disagree') {
-        // "Continue Working" — purely local, no server call. Just mark as read.
-        markRead();
-        closeModal();
-        return;
-      }
-
-      // "Agree to Clock Out" — persist the flag so the job can fire at 8h.
+      // "Agree" needs the clock event; "Continue Working" answers the reminder itself.
       const clockEventId = pendingNotif.data?.clockEventId as string | undefined;
-      if (!clockEventId) {
+      if (action === 'agree' && !clockEventId) {
         closeModal();
         return;
       }
 
-      setRespondLoading(true);
+      setRespondingTo(action);
       try {
-        await notificationApi.agreeClockout(clockEventId);
-        markRead();
+        if (action === 'agree') {
+          await notificationApi.agreeClockout(clockEventId!);
+          // Continue Working deletes the reminder server-side; agreeing keeps it, so mark it read.
+          notificationApi.markOneRead(pendingNotif.id).catch(() => {});
+        } else {
+          await notificationApi.respondShiftReminder(pendingNotif.id, 'disagree', clockEventId);
+          dropReminderFromInbox(pendingNotif.id);
+        }
         closeModal();
       } catch (err: unknown) {
-        // The clock event may already be ended (e.g. cleaned up by a test or the
-        // user clocked out another way). Nothing to agree to — dismiss silently.
-        // Fastify returned 404; the Meteor wormhole surfaces this as a
-        // "not-found" / "already clocked out" reason on a 500.
+        // Already clocked out, or the reminder was answered elsewhere: nothing
+        // left to answer — dismiss silently. The Meteor wormhole surfaces these
+        // as a "not-found" / "already clocked out" reason on a 500.
         if (
           err instanceof ApiError &&
           (err.status === 404 || /not[-\s]?found|already clocked out/i.test(err.message))
         ) {
+          dropReminderFromInbox(pendingNotif.id);
           closeModal();
           return;
         }
         setRespondError(err instanceof Error ? err.message : 'Failed to process response');
       } finally {
-        setRespondLoading(false);
+        setRespondingTo(null);
       }
     },
-    [pendingNotif, closeModal],
+    [pendingNotif, closeModal, dropReminderFromInbox],
   );
 
   return (
@@ -239,6 +264,8 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           <Button
             variant="outline"
             onClick={() => handleAction('disagree')}
+            isLoading={respondingTo === 'disagree'}
+            disabled={respondingTo !== null}
             aria-label="Continue working — stay clocked in"
           >
             Continue Working
@@ -246,7 +273,8 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           <Button
             variant="primary"
             onClick={() => handleAction('agree')}
-            isLoading={respondLoading}
+            isLoading={respondingTo === 'agree'}
+            disabled={respondingTo !== null}
             aria-label="Agree to auto clock out at 8 hours"
           >
             Agree to Clock Out

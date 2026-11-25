@@ -36,19 +36,9 @@ import {
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
-/**
- * A session can hold several posts (the plan plus replies sent from the Huddle
- * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
- * earliest — never simply the newest, which may be an inbox reply.
- */
-export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
-
-/**
- * Narrows a session's posts to its plan/wrap-up candidates: an update posted
- * from Huddle while clocked in joins the session (so it shows in that shift)
- * but is never its plan, nor where the wrap-up goes.
- */
-export const SESSION_POST_FILTER = { sessionUpdate: { $ne: true } };
+// Where a clock session's post is found lives with the clock (clock-core), so
+// the Agenda jobs can use it without importing this module.
+import { SESSION_POST_FILTER, SESSION_POST_SORT } from './clock-core';
 
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
 

@@ -17,8 +17,18 @@ import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
 import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
-import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
-import { createNotification } from './notify-core';
+import {
+  acquireCloseLease,
+  claimAutoClockout,
+  completeClose,
+  computeWorkSeconds,
+  findBreaksForEvent,
+  findSessionPost,
+  releaseCloseLease,
+  renewCloseLease,
+  settleClosedClock,
+} from './clock-core';
+import { clockOutUrl, createNotification, findTeam, notifyClockOut } from './notify-core';
 import {
   deliverScheduledPost,
   isPostStillAwaitingDelivery,
@@ -61,6 +71,121 @@ async function findOpenEvent(clockEventId) {
  */
 async function notifyUser(userId, { title, body, data }) {
   return createNotification({ userId, title, body, data });
+}
+
+const AUTO_CLOCKOUT_RETRY_MS = 60_000;
+
+/** The 8h clock-out for a session still open: only while its answers are as the job expects. */
+const AGREED_ONLY_IF = { autoClockoutAgreed: true };
+const MISSED_ONLY_IF = {
+  autoClockoutAgreed: { $ne: true },
+  shiftReminderResponse: { $ne: 'disagreed' },
+};
+
+function autoClockoutBody(event) {
+  return event.autoClockoutAgreed
+    ? 'You were automatically clocked out after 8 hours, as you agreed.'
+    : 'You were automatically clocked out after 8 hours because the shift-end reminder was not answered.';
+}
+
+/**
+ * What an automatic clock-out leaves after the session is closed: end its
+ * timers and break, replace the shift-end reminder with the outcome (so the
+ * user's inbox keeps one entry per session), and tell the user and the team's
+ * admins. Every step is safe to run again, and the session stays
+ * `autoClockoutPending` until all of it is done, so a failure part-way is
+ * picked up by the job's retry.
+ */
+async function finishAutoClockOut(event, token) {
+  const clockEventId = event._id.toHexString();
+  const { userId, teamId } = event;
+  const stillOwned = () => renewCloseLease(event._id, token);
+  await stillOwned();
+  await settleClosedClock(event);
+
+  const notices = rawDb().collection('notifications');
+  await stillOwned();
+  await notices.deleteMany({
+    userId,
+    'data.clockEventId': clockEventId,
+    'data.type': 'shift-end-reminder',
+  });
+  const sessionPost = await findSessionPost(teamId, userId, clockEventId);
+  const alreadyTold = await notices.findOne({
+    userId,
+    'data.clockEventId': clockEventId,
+    'data.type': 'auto-clock-out',
+  });
+  if (!alreadyTold) {
+    await stillOwned();
+    await notifyUser(userId, {
+      title: 'Huddle — Auto Clock-Out',
+      body: autoClockoutBody(event),
+      data: {
+        type: 'auto-clock-out',
+        clockEventId,
+        teamId,
+        url: clockOutUrl({ userId, teamId, sessionPost }),
+      },
+    });
+  }
+
+  const team = await findTeam(teamId);
+  if (team) {
+    await stillOwned();
+    await notifyClockOut({
+      userId,
+      teamId,
+      clockEventId,
+      team,
+      accumulatedTime: event.accumulatedTime,
+      sessionPost,
+      auto: true,
+    });
+  }
+  await completeClose(event._id, token, 'autoClockoutPending');
+}
+
+/**
+ * Close the session at 8h, or finish a clock-out an earlier run left half done.
+ * The claim is scoped to this job's own session (`_id`) and to `onlyIf`, what
+ * the session must still say, so an answer saved while the job runs, or another
+ * session started meanwhile, is never touched. A failure after the claim
+ * reschedules the job to resume.
+ */
+async function runAutoClockOut(job, { onlyIf, now }) {
+  const { clockEventId, userId, teamId } = job.attrs.data;
+  const retryLater = () => job.schedule(new Date(Date.now() + AUTO_CLOCKOUT_RETRY_MS)).save();
+  let owned = null; // { event, token } once this run owns finishing the session
+  try {
+    const pending = await ClockEvents.findOneAsync({
+      _id: new ObjectId(clockEventId),
+      autoClockoutPending: true,
+    });
+    if (pending) {
+      // Another run (this session's other 8h job, or an earlier try) may be
+      // finishing it right now; only one may, so this one comes back later.
+      const token = await acquireCloseLease(pending._id, 'autoClockoutPending');
+      if (!token) {
+        await retryLater();
+        return;
+      }
+      owned = { event: pending, token };
+    } else {
+      // A fresh claim holds the lease from the same write.
+      const claimed = await claimAutoClockout(userId, teamId, now, {
+        ...onlyIf,
+        _id: new ObjectId(clockEventId),
+      });
+      if (claimed) owned = claimed;
+    }
+    if (owned) await finishAutoClockOut(owned.event, owned.token);
+    await job.remove(); // one-shot: remove so it doesn't re-fire
+  } catch (err) {
+    console.error('[agenda] auto clock-out failed, will resume:', err);
+    if (owned) await releaseCloseLease(owned.event._id, owned.token).catch(() => {});
+    await retryLater();
+  }
 }
 
 export async function initAgenda() {
@@ -149,9 +274,9 @@ export async function initAgenda() {
 
   // ── Job: 8h auto-clockout (agreed) ───────────────────────────────────────
   _agenda.define('shift-auto-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
-    if (!event) return; // already clocked out
+    if (!event) return runAutoClockOut(job, { onlyIf: AGREED_ONLY_IF, now: Date.now() }); // finishes an interrupted one
     if (!event.autoClockoutAgreed) return; // user changed their mind
 
     const breaks = await findBreaksForEvent(clockEventId);
@@ -164,15 +289,14 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
-    await job.remove(); // one-shot: remove so it doesn't re-fire
+    await runAutoClockOut(job, { onlyIf: AGREED_ONLY_IF, now });
   });
 
   // ── Job: 8h missed auto-clockout ─────────────────────────────────────────
   _agenda.define('shift-missed-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
-    if (!event) return; // already clocked out
+    if (!event) return runAutoClockOut(job, { onlyIf: MISSED_ONLY_IF, now: Date.now() }); // finishes an interrupted one
     if (event.shiftReminderResponse === 'disagreed') return; // respected "Continue Working"
     if (event.autoClockoutAgreed) return; // agreed path handled by shift-auto-clockout
 
@@ -186,24 +310,7 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
-
-    // Rewrite the existing shift-end-reminder notification in-place to describe
-    // the auto-clock-out outcome (keeps exactly one inbox entry).
-    await rawDb()
-      .collection('notifications')
-      .updateOne(
-        { userId, 'data.clockEventId': clockEventId, 'data.type': 'shift-end-reminder' },
-        {
-          $set: {
-            read: true,
-            title: 'Huddle — Auto Clock-Out',
-            body: 'You were automatically clocked out after 8 hours because the shift-end reminder was not acknowledged.',
-            'data.type': 'auto-clock-out',
-          },
-        }
-      );
-    await job.remove(); // one-shot: remove so it doesn't re-fire
+    await runAutoClockOut(job, { onlyIf: MISSED_ONLY_IF, now });
   });
 
   // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────

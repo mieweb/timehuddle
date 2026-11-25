@@ -52,7 +52,7 @@ export const NOTIFICATION_EVENT_GROUPS: NotificationEventGroup[] = [
       {
         key: 'shiftEnd',
         label: 'Shift-end reminder',
-        hint: 'When you near 8 hours and are still clocked in',
+        hint: 'When you near 8 hours, and if you are clocked out automatically',
       },
       {
         key: 'timesheetRequest',

@@ -55,10 +55,14 @@ export async function closeRunningForUser(userId, now) {
 /**
  * Close every running timer session for the user, at clock-out. Nothing is
  * posted for it: the session's "Working on …" update shows its time, stopped,
- * and the clock-out says the rest. Returns how many were closed.
+ * and the clock-out says the rest. With `startedBy`, only those that began at
+ * or before it: finishing a clock-out late must not close a timer of the shift
+ * the person has started since. Returns how many were closed.
  */
-export async function closeAllForUser(userId, now) {
-  const running = await timers().find({ userId, endTime: null }).toArray();
+export async function closeAllForUser(userId, now, { startedBy } = {}) {
+  const running = await timers()
+    .find({ userId, endTime: null, ...(startedBy == null ? {} : { startTime: { $lte: startedBy } }) })
+    .toArray();
   if (running.length === 0) return 0;
   let closedCount = 0;
   for (const session of running) {

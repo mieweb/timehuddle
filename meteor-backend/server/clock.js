@@ -16,10 +16,15 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, findUserById } from './auth-bridge';
-import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
 import { resolveSettings } from './settings';
 import {
+  CLOSE_LEASE_MS,
+  acquireCloseLease,
+  completeClose,
+  newCloseLeaseToken,
+  releaseCloseLease,
+  renewCloseLease,
   toPublicClockEvent,
   breakSignature,
   classifyBreak,
@@ -28,6 +33,7 @@ import {
   computeTotalBreakSeconds,
   findBreaksForEvent,
   findBreaksForEvents,
+  findSessionPost,
   toBreakEntries,
   normalizeBreakEntries,
 } from './clock-core';
@@ -38,7 +44,12 @@ import {
   restartTimerForWorkItem,
   ticketSessionsForClockEvents,
 } from './timer-core';
-import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
+import {
+  createNotification,
+  notifyClockAdmins,
+  notifyClockOut,
+  userDisplayName,
+} from './notify-core';
 import { endSnoozeUntilClockIn } from './notification-prefs';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
@@ -591,25 +602,33 @@ Meteor.methods({
     return { ok: true };
   },
 
-  /** Handle agree/disagree to a shift-end reminder notification. */
-  async 'clock.respondShiftReminder'({ notificationId, action } = {}) {
+  /**
+   * Handle agree/disagree to a shift-end reminder. The reminder row may already
+   * be gone (answered or cleared on another tab or device); `clockEventId` then
+   * identifies the session, and the event's own ownership is what is checked.
+   */
+  async 'clock.respondShiftReminder'({ notificationId, clockEventId: givenEventId, action } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    if (!isValidId(notificationId)) throw new Meteor.Error('not-found', 'Notification not found');
 
     const notifications = rawDb().collection('notifications');
-    const notification = await notifications.findOne({ _id: new ObjectId(notificationId) });
-    if (!notification) throw new Meteor.Error('not-found', 'Notification not found');
-    if (notification.userId !== userId) {
-      throw new Meteor.Error('forbidden', 'Not your notification');
-    }
+    const notification = isValidId(notificationId)
+      ? await notifications.findOne({ _id: new ObjectId(notificationId) })
+      : null;
 
-    const data = notification.data ?? {};
-    if (data.type !== 'shift-end-reminder') throw new Meteor.Error('bad-request', 'Wrong type');
-
-    const clockEventId = typeof data.clockEventId === 'string' ? data.clockEventId : '';
-    if (!clockEventId || !isValidId(clockEventId)) {
-      throw new Meteor.Error('bad-request', 'Missing clock event');
+    let clockEventId = givenEventId;
+    if (notification) {
+      if (notification.userId !== userId) {
+        throw new Meteor.Error('forbidden', 'Not your notification');
+      }
+      const data = notification.data ?? {};
+      if (data.type !== 'shift-end-reminder') throw new Meteor.Error('bad-request', 'Wrong type');
+      clockEventId = typeof data.clockEventId === 'string' ? data.clockEventId : '';
+      if (!clockEventId || !isValidId(clockEventId)) {
+        throw new Meteor.Error('bad-request', 'Missing clock event');
+      }
+    } else if (!isValidId(clockEventId)) {
+      throw new Meteor.Error('not-found', 'Notification not found');
     }
 
     const event = await ClockEvents.findOneAsync(oid(clockEventId));
@@ -625,23 +644,23 @@ Meteor.methods({
       if (modified === 0) throw new Meteor.Error('already-closed', 'Already clocked out');
       cancelClockJobsByName(clockEventId, 'shift-missed-clockout').catch(() => {});
     } else {
-      const breaks = await findBreaksForEvent(clockEventId);
-      const currentWorkSecs = computeWorkSeconds(event, breaks, Date.now());
       const modified = await ClockEvents.updateAsync(
         { _id: event._id, endTime: null },
         {
           $set: {
             shiftReminderResponse: 'disagreed',
             shiftAutoClockoutWorkSecs: null,
-            shiftNextReminderWorkSecs: currentWorkSecs + 2 * 3600,
+            // Withdraws an earlier "Agree to Clock Out", which the agreed job checks instead.
+            autoClockoutAgreed: null,
           },
         }
       );
       if (modified === 0) throw new Meteor.Error('already-closed', 'Already clocked out');
       cancelClockJobsByName(clockEventId, 'shift-missed-clockout').catch(() => {});
+      cancelClockJobsByName(clockEventId, 'shift-auto-clockout').catch(() => {});
     }
 
-    await notifications.deleteOne({ _id: new ObjectId(notificationId), userId });
+    if (notification) await notifications.deleteOne({ _id: notification._id, userId });
     return { ok: true };
   },
 
@@ -948,11 +967,16 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // With `clockEventId`, only that session, and only while it is still open:
   // a wrap-up that lands after the person ended it by hand and started another
   // must not end the new one.
-  const event = await ClockEvents.findOneAsync(
-    clockEventId
-      ? { _id: new ObjectId(clockEventId), userId, teamId, endTime: null }
-      : { userId, teamId, endTime: null }
-  );
+  const sessionFilter = clockEventId
+    ? { _id: new ObjectId(clockEventId), userId, teamId }
+    : { userId, teamId };
+  const open = await ClockEvents.findOneAsync({ ...sessionFilter, endTime: null });
+  // A clock-out that stopped after it had closed the session (see the claim
+  // below) is finished by the next try instead of being refused as already closed.
+  const interrupted = open
+    ? null
+    : await ClockEvents.findOneAsync({ ...sessionFilter, manualClockoutPending: true });
+  const event = open ?? interrupted;
   if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
   const team = await findUserTeam(userId, teamId);
@@ -961,23 +985,12 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // clockEventId — see clock-post-simple-plan.md). Drafts never count.
   // Used both by the plan-first clock-out gate and to deep-link the
   // clock-out notifications at the post showing the plan + wrap-up.
-  const sessionPost = await rawDb()
-    .collection('huddlePosts')
-    .findOne(
-      {
-        teamId,
-        userId,
-        clockEventId: event._id.toHexString(),
-        status: { $ne: 'draft' },
-        ...SESSION_POST_FILTER,
-      },
-      { sort: SESSION_POST_SORT }
-    );
+  const sessionPost = await findSessionPost(teamId, userId, event._id.toHexString());
 
   // Plan-first flow: when the team requires a plan, block clock-out until
   // THIS session's post has a wrap-up.
   const requiresPlan = team && (await resolveSettings(team)).requirePlanForClock.value;
-  if (requiresPlan && !sessionPost?.wrapUpAt) {
+  if (!interrupted && requiresPlan && !sessionPost?.wrapUpAt) {
     throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
   }
 
@@ -995,94 +1008,101 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
     .toArray();
   // When Clock out was pressed, but never before what it closes began or what
   // already ended in it (clockStopTime), so no duration comes out negative.
-  const now = clockStopTime(at, Date.now(), {
-    startTime: event.startTime,
-    breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
-    timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
-  });
-
-  cancelClockJobs(eventId).catch((err) =>
-    console.error('[agenda] cancelClockJobs failed:', err)
-  );
-
-  // Close any running timer sessions for this user.
-  await closeAllForUser(userId, now);
-
-  // Close any open break with auto-classification.
-  if (openBreak) {
-    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
-    await ClockBreaks.updateAsync(openBreak._id, {
-      $set: { endTime: now, ...classifyBreak(durationSeconds) },
+  const now =
+    interrupted?.endTime ??
+    clockStopTime(at, Date.now(), {
+      startTime: event.startTime,
+      breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
+      timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
     });
+
+  // An open break counts the same open or closed at `now` (classifyBreak), so the
+  // total is known before the session is claimed.
+  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const finalAccumulatedTime = Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
+
+  // Claim the end of this session before anything else: the 8h auto clock-out
+  // may have closed it since it was read, and then neither its time may be
+  // overwritten nor the clock-out reported a second time. The session stays
+  // `manualClockoutPending` until the rest is done, so a failure part-way is
+  // finished by the next try.
+  let token;
+  if (interrupted) {
+    // Another stop may be finishing it right now; only one may.
+    token = await acquireCloseLease(event._id, 'manualClockoutPending');
+    if (!token) throw new Meteor.Error('in-progress', 'This clock-out is already being finished');
+  } else {
+    token = newCloseLeaseToken();
+    const claimed = await ClockEvents.updateAsync(
+      { _id: event._id, endTime: null },
+      {
+        $set: {
+          endTime: now,
+          accumulatedTime: finalAccumulatedTime,
+          manualClockoutPending: true,
+          closeLeaseUntil: Date.now() + CLOSE_LEASE_MS,
+          closeLeaseToken: token,
+        },
+      }
+    );
+    if (claimed === 0) throw new Meteor.Error('not-found', 'No active clock event');
   }
 
-  const closedBreaks = await findBreaksForEvent(eventId);
-  const shiftSpan = Math.floor((now - event.startTime) / 1000);
-  const deducted = computeDeductedBreakSeconds(closedBreaks, now);
-  const finalAccumulatedTime = Math.max(0, shiftSpan - deducted);
-
-  await ClockEvents.updateAsync(event._id, {
-    $set: { endTime: now, accumulatedTime: finalAccumulatedTime },
-  });
-  const updated = await ClockEvents.findOneAsync(event._id);
-  const pub = toPublicClockEvent(updated, closedBreaks);
-
-  if (team) {
-    const userName = await userDisplayName(userId);
-    const totalSecs = pub.accumulatedTime ?? 0;
-    const h = Math.floor(totalSecs / 3600);
-    const m = Math.floor((totalSecs % 3600) / 60);
-    const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
-    const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-    // Prefer this session's Huddle post (shows the plan + wrap-up); fall
-    // back to the member's Work tab when the session had no post.
-    const clockOutUrl = sessionPost
-      ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
-      : `/app/profile/${userId}?tab=work`;
-    await Promise.all(
-      notifyAdmins.map((adminId) =>
-        createNotification({
-          userId: adminId,
-          title: 'Huddle',
-          body: `${userName} clocked out of ${team.name} (${durationText})`,
-          data: {
-            type: 'clock-out',
-            userId,
-            userName,
-            teamName: team.name,
-            teamId,
-            duration: durationText,
-            url: clockOutUrl,
-          },
-        }).catch(() => {})
-      )
+  // From here this stop owns finishing the session, and checks it still does
+  // before each step; a failure hands the lease back.
+  const stillOwned = () => renewCloseLease(event._id, token);
+  try {
+    await stillOwned();
+    cancelClockJobs(eventId).catch((err) =>
+      console.error('[agenda] cancelClockJobs failed:', err)
     );
 
-    createNotification({
-      userId,
-      title: 'Huddle',
-      body: `You clocked out of ${team.name} (${durationText})`,
-      data: {
-        type: 'clock-out-self',
-        teamName: team.name,
-        teamId,
-        duration: durationText,
-        url: clockOutUrl,
-      },
-    }).catch(() => {});
+    // Close the timer sessions that were running by then (not those of a shift
+    // started since, when this finishes an interrupted clock-out).
+    await stillOwned();
+    await closeAllForUser(userId, now, { startedBy: now });
 
-    void emitActivity({
-      userId,
-      teamId,
-      type: ActivityType.ClockOut,
-      actor: { id: userId, name: userName },
-      payload: {
+    // Close any open break with auto-classification.
+    if (openBreak) {
+      await stillOwned();
+      const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+      await ClockBreaks.updateAsync(openBreak._id, {
+        $set: { endTime: now, ...classifyBreak(durationSeconds) },
+      });
+    }
+
+    const closedBreaks = await findBreaksForEvent(eventId);
+    const updated = await ClockEvents.findOneAsync(event._id);
+    const pub = toPublicClockEvent(updated, closedBreaks);
+
+    if (team) {
+      await stillOwned();
+      const userName = await notifyClockOut({
+        userId,
         teamId,
-        teamName: team.name,
-        durationSeconds: pub.accumulatedTime ?? undefined,
-      },
-    });
+        clockEventId: eventId,
+        team,
+        accumulatedTime: pub.accumulatedTime,
+        sessionPost,
+      });
+
+      void emitActivity({
+        userId,
+        teamId,
+        type: ActivityType.ClockOut,
+        actor: { id: userId, name: userName },
+        payload: {
+          teamId,
+          teamName: team.name,
+          durationSeconds: pub.accumulatedTime ?? undefined,
+        },
+      });
+    }
+
+    await completeClose(event._id, token, 'manualClockoutPending');
+    return pub;
+  } catch (err) {
+    await releaseCloseLease(event._id, token).catch(() => {});
+    throw err;
   }
-
-  return pub;
 }

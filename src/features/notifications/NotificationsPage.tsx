@@ -27,6 +27,7 @@ import {
 } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
 import { NOTIFICATION_READ_EVENT } from './notificationEvents';
+import { applyLiveNotification } from './liveInbox';
 import { NOTIFICATION_STRINGS } from './notificationCopy';
 import { formatReadTime, formatReceivedTime, groupByDay, useToday } from './notificationTimes';
 import { useSession } from '../../lib/useSession';
@@ -80,7 +81,7 @@ function resolveNotificationTarget(
     return;
   }
   if (data.type === 'auto-clock-out') {
-    navigate('/app/tickets');
+    navigate('/app/huddle');
     return;
   }
   console.log('[resolveNotificationTarget] No URL found, staying on current page');
@@ -109,7 +110,7 @@ export const NotificationsPage: React.FC = () => {
       .finally(() => setLoading(false));
 
     return subscribeNewNotifications((n) => {
-      setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+      setNotifications((prev) => applyLiveNotification(prev, n));
     });
   }, [user]);
 
