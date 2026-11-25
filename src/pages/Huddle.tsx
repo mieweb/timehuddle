@@ -43,7 +43,12 @@ import { createPortal } from 'react-dom';
 import { discardMedia, uploadedMedia, toPostAttachment } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
+import {
+  composerErrorMessage,
+  composerRefusalMessage,
+  isSendBusyMessage,
+  SEND_BUSY,
+} from '../features/huddle/composerErrors';
 import {
   attachmentLimitLabel,
   attachmentSizeLimit,
@@ -1155,14 +1160,23 @@ export default function Huddle() {
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
-    const alreadySending = () => new Error('A post is already on its way. Send again in a moment.');
-    const busy = () =>
-      sendingIn.has(conversationId) ||
-      [...sendingIn.values()].some((sending) => sending.some((t) => ticketIds.includes(t)));
-    if (busy()) throw alreadySending();
+    // Said here, not just thrown: SuperChat reports the rejection as
+    // 'send-failed', which handleComposerError leaves to this handler. Cleared
+    // when the post it waited on is done (see the `finally` below).
+    const refuseIfBusy = () => {
+      const busy = sendingIn.has(conversationId)
+        ? SEND_BUSY.conversation
+        : [...sendingIn.values()].some((sending) => sending.some((t) => ticketIds.includes(t)))
+          ? SEND_BUSY.ticket
+          : null;
+      if (!busy) return;
+      setInboxError(busy);
+      throw new Error(busy);
+    };
+    refuseIfBusy();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
-    if (busy()) throw alreadySending();
+    refuseIfBusy();
     sendingIn.set(conversationId, ticketIds);
     setInboxError(null);
     let id: string;
@@ -1220,6 +1234,9 @@ export default function Huddle() {
       throw err;
     } finally {
       sendingIn.delete(conversationId);
+      // A send refused while this one was on its way can go now: its message
+      // is stale. A failure of this post's own (set just above) stays.
+      setInboxError((current) => (isSendBusyMessage(current) ? null : current));
     }
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
