@@ -6,12 +6,31 @@
 page and is posted once to Huddle; progress through the day shows as new Huddle
 posts, never as edits to the plan post.
 
-- [ ] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** ([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) — `ReorderableList` in `@mieweb/ui`, with touch drag
-- [ ] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** ([#884](https://github.com/mieweb/timehuddle/issues/884)) — ordered pins, one tap to start the day
-- [ ] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** ([#885](https://github.com/mieweb/timehuddle/issues/885)) — tickets become checklist items, pre-filled from pins
-- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** ([#886](https://github.com/mieweb/timehuddle/issues/886)) — Board and Clock page show live progress; Huddle gets new posts, never edits
-- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** ([#887](https://github.com/mieweb/timehuddle/issues/887)) — checked items unpin, unchecked stay pinned
+- [x] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** ([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) — `ReorderableList` in `@mieweb/ui`, with touch drag
+- [x] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** ([#884](https://github.com/mieweb/timehuddle/issues/884)) — ordered pins, one tap to start the day · shipped in #889
+- [x] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** ([#885](https://github.com/mieweb/timehuddle/issues/885)) — tickets become checklist items, pre-filled from pins · shipped in #888
+- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** ([#886](https://github.com/mieweb/timehuddle/issues/886)) — Board and Clock page show live progress; Huddle gets new posts, never edits · in review: #893
+- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** ([#887](https://github.com/mieweb/timehuddle/issues/887)) — checked items unpin, unchecked stay pinned · in review: #896
 - [ ] `Unassigned` **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
+
+### Acceptance Criteria (#880)
+
+Ticked once on `main`; the PR that delivers each is named.
+
+- [x] Pins persist across reloads and devices in the user's order, for Huddle,
+      Redmine and GitHub tickets (M2, #889)
+- [x] With pins set, one tap goes from the clocked-out board to a running first
+      ticket and a posted plan (M2, #889)
+- [x] Starting a ticket under "Require a plan" lands on a composer that already
+      contains it, and clock-in works without typing more (M3, #888)
+- [ ] Checking an item on the Clock page shows on the board and appends a Huddle
+      post, with the plan post unchanged (M4, in review: #893)
+- [ ] Clocking out leaves the morning's plan post as it was; the wrap-up is its
+      own post (M5, in review: #896)
+- [ ] After clock-out, only unchecked items remain pinned; a ticket still running
+      is asked about first (M5, in review: #896)
+- [ ] Older plan posts render unchanged, a wrap-up written onto one before M5
+      included (M5, in review: #896)
 
 **Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
 
@@ -295,26 +314,31 @@ needs a reorderable list. It's being built in `@mieweb/ui` as **`ReorderableList
 **touch drag**, keyboard and move-button moves, and announcements. TimeHuddle uses
 it in M2; there's no hand-rolled drag-and-drop here.
 
-- [ ] `ReorderableList` lands in `@mieweb/ui` and TimeHuddle's `vendor/ui` picks it up
-- [ ] Confirm it can move a row from Rest of my board into Pinned (two sections);
-      if not, raise it on mieweb/ui#782
-- [ ] Done when: pins reorder by drag on desktop and phone, and by keyboard /
+- [x] `ReorderableList` lands in `@mieweb/ui` (mieweb/ui#793) and TimeHuddle's
+      `vendor/ui` picks it up
+- [x] Confirm it can move a row from Rest of my board into Pinned: the two
+      sections are one list with each heading a fixed row (#889)
+- [x] Done when: pins reorder by drag on desktop and phone, and by keyboard /
       move buttons, with the new position announced
 
 ### M2 — Pinned Section and Start Session on My Board
 
 **Owner:** Shubh · **Issue:** [#884](https://github.com/mieweb/timehuddle/issues/884)
 
-- [ ] Model: an ordered per-user pin list next to My Board — ticket keys and
+Shipped in #889.
+
+- [x] Model: an ordered per-user pin list next to My Board — ticket keys and
       position only (Core Model Data Discipline); pin, unpin and reorder methods
-- [ ] UI: **Pinned (n)** above **Rest of my board (n)**, each a `Collapsible` with
-      a `CountBadge`, reusing `TicketList` / `TicketRow`, ordered with M1
-- [ ] **Start session** `Button` on the Pinned header: clock in with the pinned
+      (`pinOrder` on the My Board row; `myBoard.pin` / `unpin` / `setPins`)
+- [x] UI: **Pinned (n)** above **Rest of my board (n)**, each folding from its
+      heading, reusing `TicketList` / `TicketRow`, ordered with M1
+- [x] **Start session** `Button` on the Pinned header: clock in with the pinned
       plan (M3) and start the first unchecked ticket
-- [ ] While clocked in, pinning a ticket adds it to today's plan (M4)
-- [ ] Done when: pins persist across reloads and devices in the user's order, for
+- [ ] While clocked in, pinning a ticket adds it to today's plan (M4, in review:
+      #893)
+- [x] Done when: pins persist across reloads and devices in the user's order, for
       Huddle, Redmine and GitHub tickets alike
-- [ ] Done when: with pins set, one tap goes from a clocked-out board to a running
+- [x] Done when: with pins set, one tap goes from a clocked-out board to a running
       first ticket and a posted plan
 
 ### M3 — Tickets Inline in the Plan Composer
