@@ -3,6 +3,9 @@ import {
   appendPlanItem,
   appendPlanTickets,
   editedTicketIds,
+  planChecklist,
+  planItemWords,
+  planMarkdown,
   planTicketItem,
   planTicketName,
   teamTicketIdsInText,
@@ -12,8 +15,8 @@ import {
 describe('planItems', () => {
   const item = planTicketItem({ id: 'tkt-1', name: 'TH-1: Fix [beta] login' });
 
-  it('writes a ticket as a link to its page, no checkbox, its name escaped', () => {
-    expect(item).toBe('[TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
+  it('writes a ticket as an unchecked checklist item linking its page, its name escaped', () => {
+    expect(item).toBe('- [ ] [TH-1: Fix \\[beta\\] login](/app/tickets/tkt-1)');
   });
 
   it('appends plan tickets in order, each once, skipping ones the text already links', () => {
@@ -25,9 +28,9 @@ describe('planItems', () => {
     ];
     const ticket2 = planTicketItem(tickets[1]);
     const ticket3 = planTicketItem(tickets[2]);
-    expect(appendPlanTickets('', tickets)).toBe(`${item}\n\n${ticket2}\n\n${ticket3}`);
+    expect(appendPlanTickets('', tickets)).toBe(`${item}\n${ticket2}\n${ticket3}`);
     expect(appendPlanTickets(`Review\n\n${ticket2}`, tickets)).toBe(
-      `Review\n\n${ticket2}\n\n${item}\n\n${ticket3}`,
+      `Review\n\n${ticket2}\n${item}\n${ticket3}`,
     );
   });
 
@@ -48,10 +51,13 @@ describe('planItems', () => {
     expect(planTicketName(onRedmine, naming)).toBe('RMX-150: Fix login');
   });
 
-  it('adds a ticket on its own line', () => {
+  it('adds a ticket on its own line, continuing a list the plan ends with', () => {
     expect(appendPlanItem('', item)).toBe(item);
     expect(appendPlanItem('Today I will\n', item)).toBe(`Today I will\n\n${item}`);
-    expect(appendPlanItem('- [ ] Call Pam', item)).toBe(`- [ ] Call Pam\n\n${item}`);
+    expect(appendPlanItem('- [ ] Call Pam\n', item)).toBe(`- [ ] Call Pam\n${item}`);
+    expect(appendPlanItem('- [ ] Call Pam\n\nThen lunch', item)).toBe(
+      `- [ ] Call Pam\n\nThen lunch\n\n${item}`,
+    );
   });
 
   it('reads the linked ticket ids back, once each, skipping Redmine issues', () => {
@@ -88,5 +94,27 @@ describe('planItems', () => {
   it("keeps only the team's tickets", () => {
     const text = `${item}\n- [ ] [Other](/app/tickets/elsewhere)`;
     expect(teamTicketIdsInText(text, new Set(['tkt-1']))).toEqual(['tkt-1']);
+  });
+});
+
+describe("today's plan as items (#886)", () => {
+  it('writes the plan as one checklist, tickets included, which reads back the same', () => {
+    const text = planMarkdown([
+      { ticketId: 't1', title: 'TH-1: Alpha', checked: true },
+      { text: 'Call Pam', checked: false },
+      { ticketId: 't2', title: 'TH-2: Bravo', checked: false },
+    ]);
+    expect(text).toBe(
+      '- [x] [TH-1: Alpha](/app/tickets/t1)\n- [ ] Call Pam\n- [ ] [TH-2: Bravo](/app/tickets/t2)',
+    );
+    expect(planChecklist(text)).toEqual([
+      { ticketId: 't1' },
+      { text: 'Call Pam', checked: false },
+      { ticketId: 't2' },
+    ]);
+  });
+
+  it('shows a picked mention in a checklist line by its name', () => {
+    expect(planItemWords('Call [@Pam \\[PT\\]](/app/profile/u1) now')).toBe('Call @Pam [PT] now');
   });
 });

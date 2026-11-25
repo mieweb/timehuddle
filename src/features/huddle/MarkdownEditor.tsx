@@ -29,7 +29,8 @@
  * editor, not the mirror, when the text is about to be persisted.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
-import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { CollabConfig, ModifyMenu, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { EditorKit } from '@kerebron/editor';
 import type { ReferenceTrigger } from '@mieweb/ui';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
@@ -51,11 +52,29 @@ interface MarkdownEditorProps {
   onFiles?: (files: File[]) => void;
   /** Inline references (`@` teammates, `#` tickets), inserted as chips and saved as links. */
   triggers?: ReferenceTrigger[];
+  /** Text that can't be changed; what `editorKits` add (a checkbox) can still act. */
+  readOnly?: boolean;
+  /** Extra Kerebron kits, read once when the editor mounts — keep the same ones. */
+  editorKits?: EditorKit[];
+  /** Reshape the toolbar; returning no groups leaves none. */
+  modifyMenu?: ModifyMenu;
 }
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, triggers },
+    {
+      value = '',
+      onChange,
+      onSubmit,
+      className,
+      collab,
+      placeholder,
+      onFiles,
+      triggers,
+      readOnly,
+      editorKits,
+      modifyMenu,
+    },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -158,6 +177,9 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           onChange={onChange}
           collab={collab}
           triggers={triggers}
+          readOnly={readOnly}
+          editorKits={editorKits}
+          modifyMenu={modifyMenu}
         />
       </div>
     );

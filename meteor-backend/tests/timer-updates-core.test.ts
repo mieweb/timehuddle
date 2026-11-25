@@ -4,7 +4,15 @@
 import { describe, it, expect } from 'vitest';
 
 import { huddleTicketLabel, redmineIssueLabel } from '../server/ticket-label';
-import { TimerUpdate, startAction, timerUpdateText } from '../server/timer-updates-core';
+import {
+  PlanUpdate,
+  TimerUpdate,
+  planUpdateText,
+  startAction,
+  timerUpdateText,
+  priorSeconds,
+  workedFor,
+} from '../server/timer-updates-core';
 
 const ID = '64f0c1a2b3c4d5e6f7a3fa2c';
 const REDMINE_HOST = 'redmine.example.com';
@@ -32,21 +40,51 @@ describe('timerUpdateText', () => {
         TimerUpdate.STARTED,
         label({ title: null, linkedIssue: { id: '656', host: REDMINE_HOST } }),
       ),
-    ).toBe(`*Started [RMX-656](/app/tickets/${ID})*`);
+    ).toBe(`*Working on [RMX-656](/app/tickets/${ID})*`);
   });
 
   it('has a wording for each action', () => {
     const ticket = redmineIssueLabel('7', IDS.sourcePrefixes, REDMINE_HOST);
-    expect(timerUpdateText(TimerUpdate.STARTED, ticket)).toContain('Started [RMX-7]');
-    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Switched to [RMX-7]');
+    // Starting, switching to and resuming a ticket all say you're working on it.
+    expect(timerUpdateText(TimerUpdate.STARTED, ticket)).toContain('Working on [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Working on [RMX-7]');
     expect(timerUpdateText(TimerUpdate.STOPPED, ticket)).toContain('Stopped [RMX-7]');
-    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Resumed [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Working on [RMX-7]');
   });
 
   it('keeps markup in a title from taking effect', () => {
     expect(timerUpdateText(TimerUpdate.STARTED, label({ title: '*a* [b](c)' }))).toBe(
-      `*Started [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
+      `*Working on [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
     );
+  });
+});
+
+describe('workedFor', () => {
+  it('reads in hours and minutes, minutes alone under an hour', () => {
+    expect(workedFor(0)).toBe('0m');
+    expect(workedFor(25 * 60 + 30)).toBe('25m');
+    expect(workedFor(2 * 3600)).toBe('2h 0m');
+  });
+});
+
+describe('planUpdateText (#886)', () => {
+  it('announces a ticket added to today’s plan', () => {
+    expect(planUpdateText(PlanUpdate.ADDED, { label: label({}) })).toBe(
+      `*Added [TH-123: Fix login](/app/tickets/${ID}) to today's plan*`,
+    );
+  });
+
+  it('says how long a ticket had when it was checked off by hand', () => {
+    expect(planUpdateText(PlanUpdate.CHECKED, { label: label({}) }, 600)).toBe(
+      `*Checked off [TH-123: Fix login](/app/tickets/${ID}) at 10m*`,
+    );
+  });
+
+  it('quotes a text item as plain words: a picked mention links no one', () => {
+    expect(
+      planUpdateText(PlanUpdate.UNCHECKED, { text: 'Call [@Ann](/app/profile/u1) *now*' }),
+    ).toBe('*Unchecked “Call @Ann \\*now\\*”*');
+    expect(planUpdateText(PlanUpdate.CHECKED, { text: 'Lunch' })).toBe('*Checked off “Lunch”*');
   });
 });
 
@@ -69,3 +107,23 @@ describe('startAction', () => {
     expect(startAction({ previousWorkItemId: 'a', workItemId: 'a' })).toBeNull();
   });
 });
+
+describe('priorSeconds', () => {
+  const stint = (startTime: number, endTime: number | null, durationSeconds?: number) => ({
+    startTime,
+    endTime,
+    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+  });
+
+  it("sums the ticket's closed stints before this one, not after or still running", () => {
+    const now = stint(10_000, null);
+    const ticket = [stint(0, 4_000, 4), stint(5_000, 8_000, 3), now, stint(20_000, 30_000, 10)];
+    expect(priorSeconds(now, ticket)).toBe(7);
+  });
+
+  it('is 0 for a first stint, and reads a missing duration from its times', () => {
+    expect(priorSeconds(stint(0, null), [stint(0, null)])).toBe(0);
+    expect(priorSeconds(stint(10_000, null), [stint(0, 2_500)])).toBe(2);
+  });
+});
+

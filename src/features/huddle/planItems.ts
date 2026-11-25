@@ -6,6 +6,14 @@
  */
 
 import type { SourcePrefix } from '@lib/api';
+import {
+  linkedIds,
+  planChecklist,
+  planTicketsAsChecklist,
+  ticketIdsInText,
+  withChecks,
+  type PlanItemInput,
+} from '@timehuddle/plan-items';
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
 import { ticketOutsideRefOf } from '../tickets/ticketIds';
 import type { TicketRef } from './useTicketSelection';
@@ -42,43 +50,27 @@ export function ticketLinkMarkdown(ticket: { id: string; name: string }): string
   return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
 }
 
-/** A plan line for a ticket: its link alone, no checkbox. */
+/** A plan line for a ticket: an unchecked checklist item holding its link. */
 export function planTicketItem(ticket: { id: string; name: string }): string {
-  return ticketLinkMarkdown(ticket);
+  return `- [ ] ${ticketLinkMarkdown(ticket)}`;
 }
 
-/** `text` with `item` added as its own last line (paragraph). */
+const LIST_ITEM = /^\s*[-*+]\s/;
+
+/**
+ * `text` with `item` added as its own last line: the next item of a list it
+ * ends with, else a paragraph of its own.
+ */
 export function appendPlanItem(text: string, item: string): string {
   const trimmed = text.replace(/\s+$/, '');
-  return trimmed ? `${trimmed}\n\n${item}` : item;
-}
-
-// A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.
-const TICKET_LINK = /\]\(\/app\/tickets\/(?!redmine\/)([^)/\s]+)\)/g;
-
-/** `id` URL-decoded, or null when it isn't valid encoding (a typed `%`). */
-function decodeId(id: string): string | null {
-  try {
-    return decodeURIComponent(id);
-  } catch {
-    return null;
-  }
-}
-
-// What renders as something other than a link: code (fenced or inline) and images.
-const NOT_A_LINK = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)/g;
-
-/** Ids `pattern` captures from `text`'s links, in order, each once; links quoted in code or images don't count. */
-function linkedIds(text: string, pattern: RegExp): string[] {
-  const links = text.replace(NOT_A_LINK, ' ');
-  const ids = [...links.matchAll(pattern)].flatMap((match) => decodeId(match[1]) ?? []);
-  return [...new Set(ids)];
+  if (!trimmed) return item;
+  const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+  const sameList = LIST_ITEM.test(lastLine) && LIST_ITEM.test(item);
+  return `${trimmed}${sameList ? '\n' : '\n\n'}${item}`;
 }
 
 /** Ids of the tickets `text` links to, in order, each once. */
-export function ticketIdsInText(text: string): string[] {
-  return linkedIds(text, TICKET_LINK);
-}
+export { ticketIdsInText };
 
 /** `text` with a plan line for each ticket it doesn't link yet, in the given order. */
 export function appendPlanTickets(text: string, tickets: { id: string; name: string }[]): string {
@@ -139,4 +131,36 @@ export function editedTicketIds(
   const linkedBefore = new Set(ticketIdsInText(oldText));
   const kept = carried.filter((id) => !linkedBefore.has(id));
   return [...new Set([...kept, ...teamTicketIdsInText(newText, teamTicketIds)])];
+}
+
+// ─── Today's plan as items (M4, #886) ────────────────────────────────────────
+
+/** Today's plan read out of its text (`@timehuddle/plan-items`, shared with the server). */
+export { planChecklist, planTicketsAsChecklist, withChecks, type PlanItemInput };
+
+/** A plan item with what it needs to be written as a checklist line. */
+export type PlanItemText =
+  { ticketId: string; title: string; checked: boolean } | { text: string; checked: boolean };
+
+/**
+ * Today's plan as the editor shows it while clocked in: one checklist, every
+ * item a line — a ticket as its link (`- [ ] [TH-7: …](/app/tickets/…)`),
+ * which reads back as the same ticket (`planChecklist`).
+ */
+export function planMarkdown(items: readonly PlanItemText[]): string {
+  return items
+    .map((item) => {
+      const box = `- [${item.checked ? 'x' : ' '}] `;
+      return 'ticketId' in item
+        ? box + ticketLinkMarkdown({ id: item.ticketId, name: item.title })
+        : box + item.text;
+    })
+    .join('\n');
+}
+
+/** A checklist line's words as they read: a picked @mention's link shows as its name. */
+export function planItemWords(text: string): string {
+  return text.replace(/\[((?:\\.|[^\]\\])*)\]\([^)\s]*\)/g, (_, label: string) =>
+    label.replace(/\\(.)/g, '$1'),
+  );
 }

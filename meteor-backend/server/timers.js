@@ -28,8 +28,9 @@ import { unsentRedmineFor } from './redmine';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
 import { redmineStampFor } from './timer-core';
-import { discardTimerUpdate, postTimerUpdate } from './timer-updates';
+import { discardTimerUpdate, postCheckedOff, postTimerUpdate } from './timer-updates';
 import { TimerUpdate, startAction } from './timer-updates-core';
+import { planTouchAndGo } from './session-plan';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -123,7 +124,11 @@ async function announceStart(userId, session, previous, discardSessionId) {
     workItemId: session.workItemId,
     discardPrevious,
   });
-  return action ? postTimerUpdate(action, session, { remember: true }) : null;
+  // Touch and go on today's plan (M4): a check-off is its own update, read
+  // before the one for what's started.
+  const checkedOff = await planTouchAndGo(userId, previous, session, { discardPrevious });
+  if (checkedOff) await postCheckedOff(userId, checkedOff, { at: session.startTime - 1 });
+  return action ? await postTimerUpdate(action, session, { remember: true }) : null;
 }
 
 /**

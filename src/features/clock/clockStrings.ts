@@ -104,4 +104,26 @@ export const clockText = {
       : `${count} sessions under 1 minute hidden`;
   },
   showShortSessions: (shown: boolean) => (shown ? 'Hide' : 'Show'),
+
+  // ── Today's plan (while clocked in, M4) ──
+  todaysPlan: "Today's plan",
+  planProgress: (done: number, total: number) => `${done} of ${total} done`,
+  loadingTodaysPlan: "Loading today's plan",
+  planLoadFailedWith: (reason: string) => `Could not load today's plan: ${reason}`,
+  planSaveFailed: 'Could not save the plan. Please try again.',
+  planCheckFailed: 'Could not update the plan. Please try again.',
+  /** A plan ticket's timer button. */
+  startPlanTicketLabel: (title: string) => `Start timer for ${title}`,
+  stopPlanTicketLabel: (title: string) => `Stop timer for ${title}`,
+  /** A plan ticket's time this session, in the pill under it. */
+  planTicketTimeRunning: (title: string) => `Time on ${title} this session, running`,
+  planTicketTimePaused: (title: string) => `Time on ${title} this session, paused`,
+  /** Starting a ticket that was taken out of today's plan. */
+  addBackTitle: "Add it back to today's plan?",
+  addBackBody: (title: string) =>
+    `${title} isn't in today's plan anymore. Add it back so your plan shows you're working on it, or just start its timer.`,
+  addBackAndStart: 'Add back and start',
+  justStart: 'Just start',
+  /** The running ticket's badge under the clock: its name and live time. */
+  runningTicketTime: (title: string, time: string) => `${title} · ${time}`,
 } as const;

@@ -10,7 +10,10 @@
  */
 import {
   Button,
+  Badge,
   ButtonGroup,
+  useMediaQuery,
+  cn,
   Alert,
   AlertDescription,
   Input,
@@ -85,6 +88,8 @@ import { useMyBoardKeys } from './useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { timerLabel } from '../timers/ticketTimerStrings';
 import { useTicketTableView } from './useTicketTableView';
+import { TodayPlanRowsProvider, todayPlanRows } from './todayPlanRows';
+import { useSessionPlan } from '../clock/useSessionPlan';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -174,6 +179,12 @@ export const TicketsPage: React.FC = () => {
   // Keyed by `${sourceId}:${id}`, not id: a Redmine issue #42 and a Huddle
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
+  // Today's plan, as the Clock page shows it: each row says where it stands (M4).
+  const { plan: sessionPlan, teamId: planTeamId, addTickets: addToPlan } = useSessionPlan();
+  const planRows = useMemo(
+    () => todayPlanRows(sessionPlan, runningTicket),
+    [sessionPlan, runningTicket],
+  );
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const {
     start: startTimer,
@@ -500,6 +511,26 @@ export const TicketsPage: React.FC = () => {
   // one value. It does not filter either table; its results are in its own
   // dropdown (#736c).
   const [searchQuery, setSearchQuery] = useState('');
+
+  // On a phone the controls above the list fold away while it's scrolled down,
+  // so the list has the room; they're back at the top, and while searching.
+  // Fold past 48px, unfold under 8px: the list growing as they fold can't
+  // flip it back.
+  const phone = useMediaQuery('(max-width: 767px)');
+  const [listScrolled, setListScrolled] = useState(false);
+  const handleListScroll = useCallback((event: React.UIEvent) => {
+    const list = (event.target as Element).closest?.('.row-list-scroll');
+    if (!list) return;
+    const top = (event.target as Element).scrollTop;
+    setListScrolled((was) => (was ? top > 8 : top > 48));
+  }, []);
+  const headerFolded = phone && listScrolled && !searchQuery;
+  // Another tab's list starts at its top.
+  const [foldedFor, setFoldedFor] = useState(activeView);
+  if (foldedFor !== activeView) {
+    setFoldedFor(activeView);
+    setListScrolled(false);
+  }
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
@@ -893,6 +924,22 @@ export const TicketsPage: React.FC = () => {
     [loadBoard],
   );
 
+  // While clocked in, a new pin joins today's plan (#886): the open Huddle
+  // tickets of the session's team, since a plan holds its own team's only.
+  const addPinsToPlan = useCallback(
+    (tickets: UnifiedTicket[]) => {
+      if (!planTeamId) return;
+      const ids = tickets
+        .filter(
+          (t) => t.sourceId === 'huddle' && !t.status.isClosed && t.container?.id === planTeamId,
+        )
+        .map((t) => t.id);
+      if (!ids.length) return;
+      addToPlan(ids).catch(() => toast.error(boardText.addToPlanFailed));
+    },
+    [planTeamId, addToPlan, toast],
+  );
+
   // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
   const handleTogglePin = useCallback(
     (ticket: UnifiedTicket) => {
@@ -914,8 +961,9 @@ export const TicketsPage: React.FC = () => {
       )
         .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
         .finally(() => setBoardLoadingKey(null));
+      if (!unpinning) addPinsToPlan([ticket]);
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite, addPinsToPlan],
   );
 
   // A drag into, within or out of Pinned saves the whole pin list in its new
@@ -935,25 +983,48 @@ export const TicketsPage: React.FC = () => {
       void queuePinWrite(() => myBoardApi.setPins(next.map(ticketRefOf))).catch(() =>
         toast.error(boardText.reorderFailed),
       );
+      const newlyPinned = (ticket: UnifiedTicket) =>
+        keysOf(ticket).some((key) => next.includes(key) && !pinnedKeys.includes(key));
+      addPinsToPlan(after.filter(newlyPinned));
     },
-    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite],
+    [boardKeys, pinnedKeys, setPinnedKeys, toast, queuePinWrite, addPinsToPlan],
   );
 
   // Clocked out with pins, Start session (or the first pin's ▶) writes them
   // all into today's plan and starts the first once the user clocks in.
-  // Mid-session pins are #886's.
-  const startSessionButton =
-    !activeClockEvent && sessionPins.length > 0 ? (
-      <Button
-        size="sm"
-        className="rounded-full"
-        leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
-        aria-label={boardText.startSessionLabel(sessionPins.length)}
-        onClick={beginSession}
-      >
-        {boardText.startSession}
-      </Button>
-    ) : null;
+  // Mid-session pins join today's plan instead (addPinsToPlan).
+  // During a session, Pinned's heading shows it's in progress instead: a
+  // slow green pulse while you work, still while on a break.
+  const isPaused = !!activeClockEvent?.isPaused;
+  const sessionAction = activeClockEvent ? (
+    <Badge
+      variant="secondary"
+      size="sm"
+      role="status"
+      className="session-indicator inline-flex items-center gap-1.5 rounded-full"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'session-dot h-2 w-2 shrink-0 rounded-full',
+          isPaused
+            ? 'bg-muted-foreground'
+            : 'bg-success animate-[pulse_1.5s_ease-in-out_infinite] motion-reduce:animate-none',
+        )}
+      />
+      {isPaused ? boardText.onBreak : boardText.inProgress}
+    </Badge>
+  ) : sessionPins.length > 0 ? (
+    <Button
+      size="sm"
+      className="rounded-full"
+      leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+      aria-label={boardText.startSessionLabel(sessionPins.length)}
+      onClick={beginSession}
+    >
+      {boardText.startSession}
+    </Button>
+  ) : null;
 
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
@@ -1093,413 +1164,432 @@ export const TicketsPage: React.FC = () => {
 
   return (
     <AppPage fill width="full">
-      <h1 className="sr-only">Tickets</h1>
+      <TodayPlanRowsProvider value={planRows}>
+        <h1 className="sr-only">Tickets</h1>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="tickets-views flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div
-            ref={switcherRef}
-            className="tickets-view-switcher mb-1.5 flex shrink-0 items-center justify-between gap-2"
+            className="tickets-views flex min-h-0 flex-1 flex-col"
+            onScrollCapture={handleListScroll}
           >
-            <SegmentedSwitcher
-              name="tickets-view"
-              label={viewText.switcherLabel}
-              hideLabel
-              compact
-              options={VIEW_OPTIONS}
-              value={activeView}
-              onValueChange={setActiveView}
-            />
-            {activeView !== 'week' && (
-              <Button
-                variant={selectionOn ? 'primary' : 'secondary'}
-                size="sm"
-                aria-pressed={selectionOn}
-                rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-                onClick={toggleSelecting}
-                className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
-              >
-                {selectionOn ? viewText.doneSelecting : viewText.select}
-              </Button>
-            )}
-          </div>
-
-          {/* One toolbar for both ticket lists: it stays put when the tab changes.
-              My Week is a timesheet, so it has none. */}
-          {activeView !== 'week' && (
-            <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-              {newTicketButton}
-
-              <RedmineSuggestions
-                userId={userId}
-                query={searchQuery}
-                onQueryChange={setSearchQuery}
-                baseUrl={redmineBaseUrl}
-                sourcePrefixes={sourcePrefixes}
-                runningIssueId={runningRedmineIssueId}
-                onToggleTimer={handleSuggestionTimer}
-                runningTicketKey={runningTicket?.key ?? null}
-                onToggleTicketTimer={handleFoundTicketTimer}
-                boardIssueIds={boardRedmineIssueIds}
-                boardKnown={boardKnown}
-                onToggleBoard={handleSuggestionBoard}
-                boardKeys={boardKeys}
-                onToggleTicketBoard={handleFoundTicketBoard}
-                inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
-              />
-            </div>
-          )}
-
-          {/* ── My Week tab ── */}
-          {activeView === 'week' && (
-            <section
-              aria-label={viewText.myWeek}
-              className="tickets-week-panel min-h-0 flex-1 overflow-y-auto"
+            <div
+              ref={switcherRef}
+              inert={headerFolded}
+              className={cn(
+                'tickets-view-switcher flex shrink-0 items-center justify-between gap-2 overflow-hidden transition-[max-height,opacity,margin] duration-200 motion-reduce:transition-none',
+                headerFolded ? 'mb-0 max-h-0 opacity-0' : 'mb-1.5 max-h-16 opacity-100',
+              )}
             >
-              <React.Suspense
-                fallback={
-                  <div className="flex justify-center py-12">
-                    <Spinner size="md" />
-                  </div>
-                }
-              >
-                <WorkWeek />
-              </React.Suspense>
-            </section>
-          )}
+              <SegmentedSwitcher
+                name="tickets-view"
+                label={viewText.switcherLabel}
+                hideLabel
+                compact
+                options={VIEW_OPTIONS}
+                value={activeView}
+                onValueChange={setActiveView}
+              />
+              {activeView !== 'week' && (
+                <Button
+                  variant={selectionOn ? 'primary' : 'secondary'}
+                  size="sm"
+                  aria-pressed={selectionOn}
+                  rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                  onClick={toggleSelecting}
+                  className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+                >
+                  {selectionOn ? viewText.doneSelecting : viewText.select}
+                </Button>
+              )}
+            </div>
 
-          {/* ── All Sources tab ── */}
-          {allSourcesOpened && (
+            {/* One toolbar for both ticket lists: it stays put when the tab changes.
+              My Week is a timesheet, so it has none. */}
+            {activeView !== 'week' && (
+              <div
+                inert={headerFolded}
+                className={cn(
+                  'tickets-toolbar sticky top-0 z-20 -mx-4 flex shrink-0 items-center gap-2 border-neutral-200 bg-neutral-50/95 px-4 backdrop-blur transition-[max-height,opacity,margin,padding] duration-200 supports-backdrop-filter:bg-neutral-50/80 motion-reduce:transition-none dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0',
+                  headerFolded
+                    ? 'mb-0 max-h-0 overflow-hidden border-b-0 py-0 opacity-0'
+                    : 'mb-3 max-h-24 border-b py-2 opacity-100',
+                )}
+              >
+                {newTicketButton}
+
+                <RedmineSuggestions
+                  userId={userId}
+                  query={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  baseUrl={redmineBaseUrl}
+                  sourcePrefixes={sourcePrefixes}
+                  runningIssueId={runningRedmineIssueId}
+                  onToggleTimer={handleSuggestionTimer}
+                  runningTicketKey={runningTicket?.key ?? null}
+                  onToggleTicketTimer={handleFoundTicketTimer}
+                  boardIssueIds={boardRedmineIssueIds}
+                  boardKnown={boardKnown}
+                  onToggleBoard={handleSuggestionBoard}
+                  boardKeys={boardKeys}
+                  onToggleTicketBoard={handleFoundTicketBoard}
+                  inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
+                />
+              </div>
+            )}
+
+            {/* ── My Week tab ── */}
+            {activeView === 'week' && (
+              <section
+                aria-label={viewText.myWeek}
+                className="tickets-week-panel min-h-0 flex-1 overflow-y-auto"
+              >
+                <React.Suspense
+                  fallback={
+                    <div className="flex justify-center py-12">
+                      <Spinner size="md" />
+                    </div>
+                  }
+                >
+                  <WorkWeek />
+                </React.Suspense>
+              </section>
+            )}
+
+            {/* ── All Sources tab ── */}
+            {allSourcesOpened && (
+              <section
+                aria-label={viewText.allSources}
+                className={viewPanelClass(activeView === 'tickets')}
+              >
+                <TicketListPanel
+                  {...sharedListProps}
+                  view={ticketsView}
+                  loading={ticketsLoading}
+                  canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
+                  onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
+                  primaryLabel="Move to My Board"
+                  onPrimaryAction={handleMoveToBoard}
+                  emptyText={{
+                    open: 'No open tickets',
+                    closed: 'No closed tickets',
+                    hint: 'Create one to get started.',
+                  }}
+                />
+              </section>
+            )}
+
+            {/* ── My Board tab ── */}
             <section
-              aria-label={viewText.allSources}
-              className={viewPanelClass(activeView === 'tickets')}
+              aria-label={viewText.myBoard}
+              className={viewPanelClass(activeView === 'my-board')}
             >
               <TicketListPanel
                 {...sharedListProps}
-                view={ticketsView}
-                loading={ticketsLoading}
-                canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
-                onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
-                primaryLabel="Move to My Board"
-                onPrimaryAction={handleMoveToBoard}
-                emptyText={{
-                  open: 'No open tickets',
-                  closed: 'No closed tickets',
-                  hint: 'Create one to get started.',
-                }}
-              />
-            </section>
-          )}
-
-          {/* ── My Board tab ── */}
-          <section
-            aria-label={viewText.myBoard}
-            className={viewPanelClass(activeView === 'my-board')}
-          >
-            <TicketListPanel
-              {...sharedListProps}
-              view={boardView}
-              pinnedKeys={pinnedKeys}
-              onTogglePin={handleTogglePin}
-              onPinsReorder={handleReorderPins}
-              pinnedAction={startSessionButton}
-              loading={boardLoading}
-              hideBoardButton
-              // Unresolvable board entries, announced politely.
-              afterBulkBar={
-                <>
-                  {boardKnown && assignedNotice.open && (
-                    <div
-                      role="status"
-                      className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
-                    >
-                      <Text size="xs" variant="muted">
-                        {assignedRemaining === null
-                          ? starterText.moreAssignedUncounted
-                          : starterText.moreAssigned(assignedRemaining)}
-                      </Text>
-                      {/* The link stays with the sentence; Dismiss goes to the far end. */}
-                      <ButtonGroup split className="board-assigned-notice-actions flex-1">
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="h-auto p-0 text-xs"
-                          isLoading={gettingAssigned}
-                          loadingText={starterText.getting}
-                          onClick={() => void handleGetAssigned()}
-                          aria-label={starterText.addMoreLabel(nextAssignedCount)}
-                        >
-                          {starterText.addMore(nextAssignedCount)}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={assignedNotice.dismiss}
-                          aria-label={starterText.dismiss}
-                        >
-                          <X className="h-3.5 w-3.5" aria-hidden="true" />
-                        </Button>
-                      </ButtonGroup>
-                    </div>
-                  )}
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
-                  >
-                    {unresolvedBoard && (
-                      <>
+                view={boardView}
+                pinnedKeys={pinnedKeys}
+                onTogglePin={handleTogglePin}
+                onPinsReorder={handleReorderPins}
+                pinnedAction={sessionAction}
+                loading={boardLoading}
+                hideBoardButton
+                // Unresolvable board entries, announced politely.
+                afterBulkBar={
+                  <>
+                    {boardKnown && assignedNotice.open && (
+                      <div
+                        role="status"
+                        className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
+                      >
                         <Text size="xs" variant="muted">
-                          {unresolvedBoard.message}
+                          {assignedRemaining === null
+                            ? starterText.moreAssignedUncounted
+                            : starterText.moreAssigned(assignedRemaining)}
                         </Text>
-                        {removeUnavailableFailed && (
-                          <Text size="xs" variant="destructive">
-                            {removalText.removeUnavailableFailed}
-                          </Text>
-                        )}
-                        {unresolvedBoard.removableKeys.length > 0 && (
+                        {/* The link stays with the sentence; Dismiss goes to the far end. */}
+                        <ButtonGroup split className="board-assigned-notice-actions flex-1">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-xs"
+                            isLoading={gettingAssigned}
+                            loadingText={starterText.getting}
+                            onClick={() => void handleGetAssigned()}
+                            aria-label={starterText.addMoreLabel(nextAssignedCount)}
+                          >
+                            {starterText.addMore(nextAssignedCount)}
+                          </Button>
                           <Button
                             variant="ghost"
-                            size="sm"
-                            onClick={handleRemoveUnavailable}
-                            aria-label={removalText.removeUnavailableLabel(
-                              unresolvedBoard.removableKeys.length,
-                            )}
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={assignedNotice.dismiss}
+                            aria-label={starterText.dismiss}
                           >
-                            {removalText.removeUnavailable}
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
                           </Button>
-                        )}
-                      </>
+                        </ButtonGroup>
+                      </div>
                     )}
-                  </div>
-                </>
-              }
-              canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
-              onBulkDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
-              primaryLabel="Remove from My Board"
-              onPrimaryAction={handleRemoveFromBoard}
-              emptyText={{
-                open: 'Your board is empty',
-                closed: 'No closed tickets on your board',
-                hint: viewText.emptyBoardHint,
-              }}
-              // Wraps on a phone, where the two labels do not fit one row.
-              emptyAction={
-                <ButtonGroup className="empty-board-actions max-w-full flex-wrap justify-center gap-2">
-                  {offerAssigned && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
+                    >
+                      {unresolvedBoard && (
+                        <>
+                          <Text size="xs" variant="muted">
+                            {unresolvedBoard.message}
+                          </Text>
+                          {removeUnavailableFailed && (
+                            <Text size="xs" variant="destructive">
+                              {removalText.removeUnavailableFailed}
+                            </Text>
+                          )}
+                          {unresolvedBoard.removableKeys.length > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleRemoveUnavailable}
+                              aria-label={removalText.removeUnavailableLabel(
+                                unresolvedBoard.removableKeys.length,
+                              )}
+                            >
+                              {removalText.removeUnavailable}
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                }
+                canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
+                onBulkDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
+                primaryLabel="Remove from My Board"
+                onPrimaryAction={handleRemoveFromBoard}
+                emptyText={{
+                  open: 'Your board is empty',
+                  closed: 'No closed tickets on your board',
+                  hint: viewText.emptyBoardHint,
+                }}
+                // Wraps on a phone, where the two labels do not fit one row.
+                emptyAction={
+                  <ButtonGroup className="empty-board-actions max-w-full flex-wrap justify-center gap-2">
+                    {offerAssigned && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        leftIcon={<UserRoundArrowLeft className="h-4 w-4" aria-hidden="true" />}
+                        isLoading={gettingAssigned}
+                        loadingText={starterText.getting}
+                        onClick={() => void handleGetAssigned()}
+                      >
+                        {starterText.getAssigned}
+                      </Button>
+                    )}
                     <Button
-                      variant="primary"
+                      variant="outline"
                       size="sm"
-                      leftIcon={<UserRoundArrowLeft className="h-4 w-4" aria-hidden="true" />}
-                      isLoading={gettingAssigned}
-                      loadingText={starterText.getting}
-                      onClick={() => void handleGetAssigned()}
+                      leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
+                      onClick={browseAllSources}
                     >
-                      {starterText.getAssigned}
+                      {viewText.browseAllSources}
                     </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
-                    onClick={browseAllSources}
-                  >
-                    {viewText.browseAllSources}
-                  </Button>
-                </ButtonGroup>
-              }
-              emptyNotice={unresolvedBoardNotice}
-            />
-          </section>
-        </div>
+                  </ButtonGroup>
+                }
+                emptyNotice={unresolvedBoardNotice}
+              />
+            </section>
+          </div>
 
-        {/* Edit ticket modal (creator only) */}
-        <AppModal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
-          <ModalHeader>
-            <ModalTitle>Edit Ticket</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody>
-            <div className="space-y-4">
-              <Input
-                label="Title"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className={noFocusRingClass}
-                autoFocus
-              />
-              <Textarea
-                label="Description"
-                placeholder="Add a description…"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                className={noFocusRingClass}
-                autoResize
-                rows={3}
-              />
-              <div>
-                <label className="mb-2 block text-sm font-medium">Assignees</label>
-                <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
-                  {memberOptions.map((option) => (
-                    <label
-                      key={option.value}
-                      className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={editAssignees.includes(option.value)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setEditAssignees([...editAssignees, option.value]);
-                          } else {
-                            setEditAssignees(editAssignees.filter((id) => id !== option.value));
-                          }
-                        }}
-                        className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
-                      />
-                      <span className="text-sm">{option.label}</span>
-                    </label>
-                  ))}
+          {/* Edit ticket modal (creator only) */}
+          <AppModal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
+            <ModalHeader>
+              <ModalTitle>Edit Ticket</ModalTitle>
+              <ModalClose />
+            </ModalHeader>
+            <ModalBody>
+              <div className="space-y-4">
+                <Input
+                  label="Title"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className={noFocusRingClass}
+                  autoFocus
+                />
+                <Textarea
+                  label="Description"
+                  placeholder="Add a description…"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className={noFocusRingClass}
+                  autoResize
+                  rows={3}
+                />
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Assignees</label>
+                  <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
+                    {memberOptions.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={editAssignees.includes(option.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditAssignees([...editAssignees, option.value]);
+                            } else {
+                              setEditAssignees(editAssignees.filter((id) => id !== option.value));
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm">{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
+                <Select
+                  label="Priority"
+                  options={PRIORITY_OPTIONS}
+                  value={editPriority || 'none'}
+                  onValueChange={setEditPriority}
+                />
               </div>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="outline" onClick={() => setEditTicket(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSaveEdit}
+                isLoading={editSaving}
+                loadingText="Saving…"
+                disabled={!editTitle.trim()}
+              >
+                Save
+              </Button>
+            </ModalFooter>
+          </AppModal>
+
+          {/* Change Status modal */}
+          <AppModal
+            open={!!changeStatusTicket}
+            onOpenChange={(open) => !open && setChangeStatusTicket(null)}
+            size="sm"
+          >
+            <ModalHeader>
+              <ModalTitle>Change Status</ModalTitle>
+              <ModalClose />
+            </ModalHeader>
+            <ModalBody>
               <Select
-                label="Priority"
-                options={PRIORITY_OPTIONS}
-                value={editPriority || 'none'}
-                onValueChange={setEditPriority}
+                label="Status"
+                options={STATUS_OPTIONS}
+                value={changeStatusValue}
+                onValueChange={setChangeStatusValue}
               />
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="outline" onClick={() => setEditTicket(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSaveEdit}
-              isLoading={editSaving}
-              loadingText="Saving…"
-              disabled={!editTitle.trim()}
-            >
-              Save
-            </Button>
-          </ModalFooter>
-        </AppModal>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="outline" onClick={() => setChangeStatusTicket(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSaveStatus}
+                isLoading={changeStatusSaving}
+                loadingText="Saving…"
+              >
+                Save
+              </Button>
+            </ModalFooter>
+          </AppModal>
 
-        {/* Change Status modal */}
-        <AppModal
-          open={!!changeStatusTicket}
-          onOpenChange={(open) => !open && setChangeStatusTicket(null)}
-          size="sm"
-        >
-          <ModalHeader>
-            <ModalTitle>Change Status</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody>
-            <Select
-              label="Status"
-              options={STATUS_OPTIONS}
-              value={changeStatusValue}
-              onValueChange={setChangeStatusValue}
-            />
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="outline" onClick={() => setChangeStatusTicket(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSaveStatus}
-              isLoading={changeStatusSaving}
-              loadingText="Saving…"
-            >
-              Save
-            </Button>
-          </ModalFooter>
-        </AppModal>
+          {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
+          <AppModal
+            open={deleteRequest !== null}
+            onOpenChange={(open) => !open && closeDeleteDialog()}
+            size="sm"
+          >
+            <ModalHeader>
+              <ModalTitle>
+                {removalText.deleteTitle(deleteRequest?.huddleIds.length ?? 0)}
+              </ModalTitle>
+              <ModalClose />
+            </ModalHeader>
+            <ModalBody className="space-y-2">
+              {!!deleteRequest?.huddleIds.length && (
+                <Text variant="muted" size="sm">
+                  {removalText.huddleDeleted(deleteRequest.huddleIds.length)}
+                </Text>
+              )}
+              {deleteError && (
+                <Alert variant="danger" role="alert">
+                  <AlertDescription>{deleteError}</AlertDescription>
+                </Alert>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="outline" onClick={closeDeleteDialog}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
+                Delete
+              </Button>
+            </ModalFooter>
+          </AppModal>
 
-        {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
-        <AppModal
-          open={deleteRequest !== null}
-          onOpenChange={(open) => !open && closeDeleteDialog()}
-          size="sm"
-        >
-          <ModalHeader>
-            <ModalTitle>{removalText.deleteTitle(deleteRequest?.huddleIds.length ?? 0)}</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody className="space-y-2">
-            {!!deleteRequest?.huddleIds.length && (
-              <Text variant="muted" size="sm">
-                {removalText.huddleDeleted(deleteRequest.huddleIds.length)}
+          <AppModal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+            <ModalHeader>
+              <ModalTitle>No team available</ModalTitle>
+              <ModalClose />
+            </ModalHeader>
+            <ModalBody className="space-y-3">
+              <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+                This organization does not have a team yet. A team must exist before tickets can be
+                created.
               </Text>
-            )}
-            {deleteError && (
-              <Alert variant="danger" role="alert">
-                <AlertDescription>{deleteError}</AlertDescription>
-              </Alert>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="outline" onClick={closeDeleteDialog}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
-              Delete
-            </Button>
-          </ModalFooter>
-        </AppModal>
+              <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+                Create or join a team in this organization, then come back to add tickets.
+              </Text>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="outline" onClick={() => setShowNoTeamDialog(false)}>
+                Close
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setShowNoTeamDialog(false);
+                  navigate('/app/teams');
+                }}
+              >
+                Go to Teams
+              </Button>
+            </ModalFooter>
+          </AppModal>
 
-        <AppModal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
-          <ModalHeader>
-            <ModalTitle>No team available</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody className="space-y-3">
-            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
-              This organization does not have a team yet. A team must exist before tickets can be
-              created.
-            </Text>
-            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
-              Create or join a team in this organization, then come back to add tickets.
-            </Text>
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="outline" onClick={() => setShowNoTeamDialog(false)}>
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setShowNoTeamDialog(false);
-                navigate('/app/teams');
-              }}
-            >
-              Go to Teams
-            </Button>
-          </ModalFooter>
-        </AppModal>
-
-        <TicketCreateModal
-          open={showCreate}
-          onClose={() => setShowCreate(false)}
-          // A new ticket is put on its creator's My Board by the server.
-          onCreated={() => {
-            void refetch();
-            loadBoard();
-          }}
-          teams={teams}
-          defaultTeamId={teams.find((team) => team.id === selectedTeam?.id)?.id ?? null}
-          userId={userId}
-        />
-        <RedmineIssueEditModal
-          issueId={redmineEditIssueId}
-          onClose={() => setRedmineEditIssueId(null)}
-          onSaved={refetchAfterRedmineWrite}
-        />
-      </div>
+          <TicketCreateModal
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+            // A new ticket is put on its creator's My Board by the server.
+            onCreated={() => {
+              void refetch();
+              loadBoard();
+            }}
+            teams={teams}
+            defaultTeamId={teams.find((team) => team.id === selectedTeam?.id)?.id ?? null}
+            userId={userId}
+          />
+          <RedmineIssueEditModal
+            issueId={redmineEditIssueId}
+            onClose={() => setRedmineEditIssueId(null)}
+            onSaved={refetchAfterRedmineWrite}
+          />
+        </div>
+      </TodayPlanRowsProvider>
     </AppPage>
   );
 };

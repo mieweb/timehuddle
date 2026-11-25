@@ -62,6 +62,32 @@ html[data-theme='dark'] {
   min-height: 13rem;
 }
 
+/* A plan checklist line: box, ▶/⏸, then the text, with the tickets' time
+   pills on a row of their own under the text. Kerebron lays task items out
+   as a flex row; a grid puts the pills in the text's column. */
+.kb-editor li.plan-task-item {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.25rem;
+}
+.kb-editor li.plan-task-item > .plan-task-time {
+  grid-column: 3;
+}
+.kb-editor li.plan-task-item > .plan-task-time:empty {
+  display: none;
+}
+/* Kerebron's unlayered `.kb-editor *` zeroes padding, which outranks the time
+   pill's layered Badge utilities: restate Badge `sm`'s, as on My Board. */
+.kb-editor .time-pill {
+  padding: 0.125rem 0.5rem;
+}
+
+/* Today's plan while clocked in is read-only: as tall as its checklist. */
+.markdown-editor.today-plan-editor .kb-editor {
+  min-height: 0;
+}
+
 /* iOS WKWebView (Capacitor) can fail to invoke the software keyboard on a tap
    inside a contenteditable when `-webkit-user-select`/`-webkit-touch-callout`
    isn't explicitly set to an editable-friendly value — desktop/mobile Safari

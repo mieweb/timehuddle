@@ -1384,6 +1384,13 @@ export interface HuddlePost {
   sessionUpdate?: boolean;
   /** Resolved from `clockEventId` at read time; absent if the session is gone. */
   session?: { startTime: number; endTime: number | null };
+  /** The timer a "Working on …" update started, read from it at read time; null for any other post. */
+  timer?: {
+    startTime: number;
+    endTime: number | null;
+    durationSeconds?: number | null;
+    priorSeconds?: number;
+  } | null;
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
   /** Scheduled post (#596): only its author sees it, and nobody is notified, until then. */
@@ -1755,6 +1762,34 @@ export interface ClockEvent {
   endTime: number | null;
   /** Ticket timers that ran during this shift. Only `clock.timesheet` returns these. */
   ticketSessions?: ShiftTicketSession[];
+  /**
+   * Today's plan's revision — null before one is set. Read the plan through
+   * `clockApi.getPlan`; this is here to say it changed.
+   */
+  planRev?: number | null;
+}
+
+/** An item of today's plan as shown: a ticket with its name and time this session, or a line of text. */
+export type SessionPlanItem =
+  | {
+      id: string;
+      ticketId: string;
+      /** `TH-12: Fix login` */
+      title: string;
+      checked: boolean;
+      /** Seconds of this ticket's closed stints this session; add the running one's from `runningSince`. */
+      seconds: number;
+      /** When its running stint started (epoch ms), or null when it isn't running. */
+      runningSince: number | null;
+    }
+  | { id: string; text: string; checked: boolean };
+
+/** Today's plan on the caller's open session (`clock.plan`). */
+export interface SessionPlan {
+  clockEventId: string;
+  /** False until the session has had a plan set. */
+  initialized: boolean;
+  items: SessionPlanItem[];
 }
 
 // ─── Timesheet change approvals ───────────────────────────────────────────────
@@ -1867,6 +1902,22 @@ export const clockApi = {
 
   /** Get the current user's active clock event (any team), or null. */
   getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
+
+  /** Today's plan on the caller's open session in a team, or null when clocked out there. */
+  getPlan: (teamId: string) => wormholeCall<SessionPlan | null>('clock.plan', { teamId }),
+
+  /**
+   * Set today's plan from its items in order. New items, and checks the edit
+   * changes, are announced in Huddle.
+   */
+  setPlan: (
+    teamId: string,
+    items: Array<{ ticketId: string } | { text: string; checked?: boolean }>,
+  ) => wormholeCall<SessionPlan>('clock.setPlan', { teamId, items }),
+
+  /** Check an item of today's plan off by hand, or uncheck it; announced in Huddle. */
+  checkPlanItem: (teamId: string, itemId: string, checked: boolean) =>
+    wormholeCall<SessionPlan>('clock.checkPlanItem', { teamId, itemId, checked }),
 
   /** The caller's latest completed sessions on a team, newest first. */
   getRecentSessions: (teamId: string, limit: number) =>
