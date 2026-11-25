@@ -15,17 +15,19 @@ Changes TimeHuddle needs from `@mieweb/ui` (see [`docs/superchat-inbox-gaps.md`]
 are built in the library itself, on a branch that is sent upstream as a PR, rather than worked
 around in this app. Vendoring lets the app use that branch before it is released.
 
-`ui` points at `mieweb/ui`, branch `timehuddle/next`: an integration branch that is `main` with
-the changes TimeHuddle needs merged in ahead of their release. Each change is its own PR to `main`.
-Everything it used to carry has merged (the SuperChat host extension points, media view, attachment
-`File`s, lazy Kerebron and inline references: [#676](https://github.com/mieweb/ui/pull/676),
+`ui` points at `mieweb/ui`, branch `timehuddle/next`: an integration branch that is `main` plus
+whatever TimeHuddle needs that is still in review upstream. Each change is its own PR to `main`;
+merge its branch into `timehuddle/next` again after each review round. The tarball is always built
+from `timehuddle/next`, never from `main`, even while the two match: new work lands on the branch
+first, so `main` is usually behind it.
+
+Right now nothing is ahead of `main`. Everything the branch has carried has merged (the SuperChat
+host extension points, media view, attachment `File`s, lazy Kerebron, inline references and upload
+on attach: [#676](https://github.com/mieweb/ui/pull/676),
 [#699](https://github.com/mieweb/ui/pull/699), [#700](https://github.com/mieweb/ui/pull/700),
-[#810](https://github.com/mieweb/ui/pull/810)–[#816](https://github.com/mieweb/ui/pull/816)). The
-one change still ahead of `main` is upload on attach (`useAttachmentUploads`, ChatComposer's
-`uploadAttachment`, `UploadAnnouncer`), open as [mieweb/ui#832](https://github.com/mieweb/ui/pull/832)
-from branch `feat/chatcomposer-upload-on-attach`: merge that branch into `timehuddle/next` again
-after each review round. Once it merges, `timehuddle/next` is plain `main`. CI and Docker never
-check the submodule out: they install the committed tarball.
+[#810](https://github.com/mieweb/ui/pull/810)–[#816](https://github.com/mieweb/ui/pull/816),
+[#832](https://github.com/mieweb/ui/pull/832)). CI and Docker never check the submodule out: they
+install the committed tarball.
 
 ```mermaid
 graph LR
@@ -58,7 +60,7 @@ rebuilds anyway.
 
 ## Going back to npm
 
-Once the PR is merged and released: set `"@mieweb/ui"` back to the released version, run
+Once nothing on `timehuddle/next` is ahead of a published release: set `"@mieweb/ui"` back to the released version, run
 `npm install`, and remove the `ui` submodule, the tarball, `.ui-tarball-commit`, the `ui:*` scripts
 and the `COPY vendor/mieweb-ui.tgz` lines in the `Dockerfile`. The previous round of this is
 archived in [`.attic/mieweb-ui-tarball/`](../.attic/mieweb-ui-tarball/README.md).
