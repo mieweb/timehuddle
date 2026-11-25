@@ -351,9 +351,10 @@ export default function Huddle() {
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId),
   );
-  // The conversations with a send in flight: guards re-entry in each, as
-  // SuperChat's busy Send does, so another conversation can still post.
-  const sendingInRef = useRef(new Set<string>());
+  // The conversations with a send in flight, each with the tickets it carries:
+  // guards re-entry in each, as SuperChat's busy Send does, and keeps a
+  // ticket from going out twice from two conversations (see handleMessageSent).
+  const sendingInRef = useRef(new Map<string, readonly string[]>());
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -1071,22 +1072,26 @@ export default function Huddle() {
     // SuperChat shows this conversation's Send busy a render later; the ref
     // covers the click that lands before that render. Refused out loud (a
     // rejection), so SuperChat puts this draft and its files back rather than
-    // dropping them. Other conversations are not held up.
+    // dropping them. Another conversation can post meanwhile, but not with
+    // tickets a post in flight carries: the picked tickets are page-wide.
     const sendingIn = sendingInRef.current;
+    // Snapshot what's staged now: anything picked while this posts belongs to
+    // the *next* post, not this one.
+    const ticketIds = selectedTicketIds;
     const alreadySending = () => new Error('A post is already on its way. Send again in a moment.');
-    if (sendingIn.has(conversationId)) throw alreadySending();
+    const busy = () =>
+      sendingIn.has(conversationId) ||
+      [...sendingIn.values()].some((sending) => sending.some((t) => ticketIds.includes(t)));
+    if (busy()) throw alreadySending();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
-    if (sendingIn.has(conversationId)) throw alreadySending();
-    sendingIn.add(conversationId);
+    if (busy()) throw alreadySending();
+    sendingIn.set(conversationId, ticketIds);
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
     // Stamped once: the post's Day thread, even if midnight passes while it sends.
     const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
-    // Snapshot what's staged now: anything picked while this posts belongs to
-    // the *next* post, not this one.
-    const ticketIds = selectedTicketIds;
     // The conversation open in the live URL, read again when the post lands
     // to tell whether the reader opened another one meanwhile.
     const openConversationParam = () =>
