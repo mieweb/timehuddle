@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import { readBuildInfo } from '@timehuddle/build-info';
 import { defineConfig, type Plugin } from 'vite';
 
 import { watchPreview, watchVideoId, withPreview } from './scripts/watch-preview.mjs';
@@ -104,6 +105,9 @@ export default defineConfig({
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    // The commit, branch and commits since the last release this bundle was
+    // built from — shown on About, for tracing a debug build on a phone.
+    __BUILD_INFO__: JSON.stringify(readBuildInfo({ cwd: __dirname, version: pkg.version })),
   },
 
   resolve: {

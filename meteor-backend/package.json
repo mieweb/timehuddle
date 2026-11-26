@@ -19,6 +19,7 @@
     "@parse/node-apn": "^8.2.0",
     "@swc/helpers": "^0.5.17",
     "@timehuddle/app-links": "file:../packages/app-links",
+    "@timehuddle/build-info": "file:../packages/build-info",
     "@timehuddle/ota-version": "file:../packages/ota-version",
     "@timehuddle/plan-items": "file:../packages/plan-items",
     "@timehuddle/ticket-sources": "file:../packages/ticket-sources",

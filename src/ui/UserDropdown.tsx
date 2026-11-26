@@ -12,6 +12,7 @@ import {
   DropdownItem,
   DropdownLabel,
   DropdownSeparator,
+  InfoIcon,
   LogOutIcon,
   SettingsIcon,
   SparkleIcon,
@@ -48,6 +49,11 @@ export const UserDropdown: React.FC = () => {
   const handleReleaseNotes = useCallback(() => {
     setOpen(false);
     navigate('/app/release-notes');
+  }, [navigate]);
+
+  const handleAbout = useCallback(() => {
+    setOpen(false);
+    navigate('/app/about');
   }, [navigate]);
 
   const handleProfile = useCallback(() => {
@@ -139,6 +145,10 @@ export const UserDropdown: React.FC = () => {
               {unseenReleaseCount}
             </Badge>
           )}
+        </DropdownItem>
+
+        <DropdownItem icon={<InfoIcon className="h-4 w-4" />} onClick={handleAbout}>
+          <span className="font-normal">About</span>
         </DropdownItem>
 
         <DropdownSeparator />

@@ -78,6 +78,7 @@ import './ota';
 import './email';
 import './push';
 import { initAgenda } from './agenda';
+import { readBuildInfo } from '@timehuddle/build-info';
 import { bearerContextMiddleware } from './bearer-context';
 import { apiBodyLimitMiddleware } from './api-body-limit';
 
@@ -314,6 +315,16 @@ WebApp.connectHandlers.use('/', (req, res, next) => {
 WebApp.connectHandlers.use('/health', (req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+});
+
+// What this server was started from: version, commit, and — off main — its
+// branch and the commits main doesn't have. Read once — `meteor run` restarts on a change, prod on deploy.
+// Public like /health: the repository is too. Under /api so the Vite dev proxy
+// forwards it. The About page shows it beside the app's own build.
+const serverBuildInfo = readBuildInfo();
+WebApp.connectHandlers.use('/api/build-info', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(serverBuildInfo));
 });
 
 // Proxy JWT endpoints - both /api/whoami and /auth/whoami for compatibility

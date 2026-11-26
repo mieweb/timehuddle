@@ -1457,7 +1457,10 @@ export const SettingsPage: React.FC = () => {
           size="xs"
           className={cn('settings-version px-2.5', section && 'max-md:hidden')}
         >
-          {SETTINGS_PAGE_STRINGS.version(APP_VERSION)} ·{' '}
+          <Button variant="link" size="sm" onClick={() => navigate('/app/about')}>
+            {SETTINGS_PAGE_STRINGS.version(APP_VERSION)}
+          </Button>{' '}
+          ·{' '}
           <Button variant="link" size="sm" onClick={() => navigate('/app/release-notes')}>
             {SETTINGS_PAGE_STRINGS.whatsNew}
           </Button>
