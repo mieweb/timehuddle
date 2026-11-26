@@ -9,22 +9,26 @@
  * is frozen on mount before the marker is written, so the flags stay visible
  * while the page is being read rather than vanishing under the cursor.
  *
+ * The title row links to About, which shows the build this is.
+ *
  * The same notes are readable without an account at `/release-notes`
  * (`PublicReleaseNotesPage`); the cards themselves are shared between the two.
  */
 import { faBullhorn } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Text } from '@mieweb/ui';
+import { Button, InfoIcon, Text } from '@mieweb/ui';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
+import { useRouter } from '../../ui/router';
 import { releaseNotes, unseenReleaseNotes } from './notes';
 import { ReleaseNotesList } from './ReleaseNotesList';
 import { useReleaseCelebration } from './useReleaseCelebration';
 
 export const ReleaseNotesPage: React.FC = () => {
   const { user, markReleaseNotesSeen } = useSession();
+  const { navigate } = useRouter();
   const newest = releaseNotes[0];
 
   // Captured once: which notes were unread *when the page opened*. Recomputing
@@ -55,7 +59,20 @@ export const ReleaseNotesPage: React.FC = () => {
   }, [unseenVersions]);
 
   return (
-    <AppPage subtitle="What has changed in TimeHuddle, newest first.">
+    <AppPage
+      subtitle="What has changed in TimeHuddle, newest first."
+      titleActions={
+        // Which build is running lives on About, a tap away rather than on top of the notes.
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<InfoIcon className="h-4 w-4" aria-hidden="true" />}
+          onClick={() => navigate('/app/about')}
+        >
+          About this build
+        </Button>
+      }
+    >
       {summary && (
         <Text
           as="p"

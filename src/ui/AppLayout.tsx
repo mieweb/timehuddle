@@ -77,6 +77,7 @@ const NotificationsPage = lazyNamed(
   () => import('../features/notifications/NotificationsPage'),
   'NotificationsPage',
 );
+const AboutPage = lazyNamed(() => import('../features/about/AboutPage'), 'AboutPage');
 const ProfilePage = lazyNamed(() => import('../features/profile/ProfilePage'), 'ProfilePage');
 const ReleaseNotesPage = lazyNamed(
   () => import('../features/release-notes/ReleaseNotesPage'),
@@ -121,6 +122,7 @@ interface RouteConfig {
 }
 
 const ROUTES: Record<string, RouteConfig> = {
+  '/app/about': { title: 'About', component: AboutPage },
   '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
 
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },

@@ -73,6 +73,8 @@ const MORE_ITEMS: MoreItem[] = [
  *  navigating away immediately. */
 type MoreSection = 'root' | AccountMenuSectionId;
 
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
+
 const MORE_TILE_CLASS =
   'flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700';
 
@@ -339,9 +341,14 @@ export const BottomNav: React.FC = () => {
                     ))}
                   </div>
                 )}
-                <p className="mt-4 text-center font-mono text-[10px] text-neutral-400 dark:text-neutral-600">
-                  v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => goToMoreItem('/app/about')}
+                  aria-label={`About TimeHuddle, version ${APP_VERSION}`}
+                  className="more-sheet-version mx-auto mt-4 block rounded px-2 py-1 font-mono text-[10px] text-neutral-400 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:text-neutral-600"
+                >
+                  v{APP_VERSION}
+                </button>
               </div>
             </motion.div>
           </div>
